@@ -10,14 +10,14 @@ UPDATE_SIGNATURES_DATA = False
 
 ######### REGULAR MMM FIELDS #######
 
-log_signatures_data = []
-log_initial_pi = []
-dim_n = 0
-dim_m = 0
-dim_T = 0
-B_array = []
-E_array = []
-A_array = []
+# log_signatures_data = []
+# log_initial_pi = []
+# dim_n = 0
+# dim_m = 0
+# dim_T = 0
+# B_array = []
+# E_array = []
+# A_array = []
 
 ######### CROSS VALIDATION FIELDS #######
 
@@ -30,18 +30,17 @@ max_iteration = 1000
 
 def convert_to_log_scale(initial_pi):
     # find dimension of array to convert
-    return log(initial_pi)
+    return np.array(log(initial_pi))
     # return [log(xi) for xi in initial_pi]
 
 
 def convert_to_log_scale_eij(signatures_data):
-    return log(signatures_data)
+    return np.array(log(signatures_data))
     # return [[log(xij) for xij in xi] for xi in signatures_data]
 
 
 def initialize_mmm_parameters(signatures_data, initial_pi, input_x):
     # defining the mmm
-    global log_signatures_data, log_initial_pi, dim_n, dim_m, dim_T, B_array, E_array, A_array
     log_signatures_data = convert_to_log_scale_eij(signatures_data)
     log_initial_pi = convert_to_log_scale(initial_pi)
 
@@ -54,50 +53,56 @@ def initialize_mmm_parameters(signatures_data, initial_pi, input_x):
     # are calculated each iteration
     E_array = np.zeros((dim_n, dim_m))
     A_array = np.zeros(dim_n)
+    return {"log_signatures_data": log_signatures_data, "log_initial_pi": log_initial_pi, "dim_n": dim_n,
+            "dim_m": dim_m, "dim_T": dim_T, "B_array": B_array, "E_array": E_array, "A_array": A_array}
 
 
 # on input data (sequence or sequences) do EM iterations until the model improvement is less
 # than  threshold , or until max_iterations iterations.
-def fit(input_x_data):
+def fit(input_x_data, mmm_parameters):
     current_number_of_iterations = 1
-    old_score = likelihood(input_x_data)
-    e_step()
-    m_step()
-    new_score = likelihood(input_x_data)
+    old_score = likelihood(input_x_data, mmm_parameters)
+    e_step(mmm_parameters)
+    m_step(mmm_parameters)
+    new_score = likelihood(input_x_data, mmm_parameters)
     while (abs(new_score - old_score) > threshold) and (current_number_of_iterations < max_iteration):
         # print("delta is: " + abs(new_score - old_score).__str__())
         old_score = new_score
-        e_step()
+        e_step(mmm_parameters)
         # print(self.log_initial_pi)
-        m_step()
+        m_step(mmm_parameters)
         # print(self.log_initial_pi)
-        new_score = likelihood(input_x_data)
+        new_score = likelihood(input_x_data, mmm_parameters)
         current_number_of_iterations += 1
         # print("number of iterations is: " + number_of_iterations.__str__())
     return
 
 
-def e_step():
+def e_step(mmm_parameters):
     # this is the correct calc for the Eij by the PDF
-    for i in range(dim_n):
-        for j in range(dim_m):
-            temp_log_sum_array = log_initial_pi + log_signatures_data[:, j]
+    for i in range(mmm_parameters["dim_n"]):
+        for j in range(mmm_parameters["dim_m"]):
+            temp_log_sum_array = mmm_parameters["log_initial_pi"] + mmm_parameters["log_signatures_data"][:, j]
             # temp_log_sum_array = np.zeros(dim_n)
             # for k in range(dim_n):
             #     temp_log_sum_array[k] = log_initial_pi[k] + log_signatures_data[k][j]
-            E_array[i][j] = (log(B_array[j]) + log_initial_pi[i] + log_signatures_data[i][j] - logsumexp(temp_log_sum_array))
+            mmm_parameters["E_array"][i][j] = (
+                    log(mmm_parameters["B_array"][j]) + mmm_parameters["log_initial_pi"][i] +
+                    mmm_parameters["log_signatures_data"][i][
+                        j] - logsumexp(temp_log_sum_array))
     # this is from the mail with itay to calculate log(Ai)
-    tmp = logsumexp(E_array, axis=1)
-    for i in range(dim_n):
-        A_array[i] = tmp[i]
+    tmp = logsumexp(mmm_parameters["E_array"], axis=1)
+    mmm_parameters["A_array"] = tmp
+    # for i in range(dim_n):
+    #     A_array[i] = tmp[i]
 
 
 # checks convergence from formula
 # on input on input data (sequence or sequences), return log probability to see it
-def likelihood(input_x_data):
+def likelihood(input_x_data, mmm_parameters):
     convergence = 0
-    for t in range(dim_T):
-        temp_log_sum_array = log_initial_pi + log_signatures_data[:, input_x_data[t]]
+    for t in range(mmm_parameters["dim_T"]):
+        temp_log_sum_array = mmm_parameters["log_initial_pi"] + mmm_parameters["log_signatures_data"][:, input_x_data[t]]
         # temp_log_sum_array = np.zeros(dim_n) # TODO: make better with numpy array calc
         # for i in range(dim_n):  # TODO this was old impl verify its ok
         #     temp_log_sum_array[i] = log_initial_pi[i] + log_signatures_data[i][input_x_data[t]]
@@ -105,31 +110,33 @@ def likelihood(input_x_data):
     return convergence
 
 
-def m_step():
-    for i in range(dim_n):
-        if UPDATE_SIGNATURES_DATA:
-            for j in range(dim_m):
+def m_step(mmm_parameters):
+    mmm_parameters["log_initial_pi"] = mmm_parameters["A_array"] - log(mmm_parameters["dim_T"])
+    if UPDATE_SIGNATURES_DATA:
+        for i in range(mmm_parameters["dim_n"]):
+            for j in range(mmm_parameters["dim_m"]):
                 # numerically stable for pi - Eij is already log(Eij)
-                log_signatures_data[i][j] = E_array[i][j] - log(sum(log_to_regular(E_array), axis=1)[j])
-        # numerically stable for pi
-        log_initial_pi[i] = A_array[i] - log(dim_T)
+                mmm_parameters["log_signatures_data"][i][j] = mmm_parameters["E_array"][i][j] - log(
+                    sum(log_to_regular(mmm_parameters["E_array"]), axis=1)[j])
+            # numerically stable for pi
+            # mmm_parameters["log_initial_pi"][i] = mmm_parameters["A_array"][i] - log(mmm_parameters["dim_T"])
 
 
-def set_t(t):
-    global dim_T
-    dim_T = t
-
-
-def set_b(input_x):
-    global B_array
-    B_array = create_b_array(input_x, dim_m)
+# def set_t(t):
+#     global dim_T
+#     dim_T = t
+#
+#
+# def set_b(input_x):
+#     global B_array
+#     B_array = create_b_array(input_x, dim_m)
 
 
 def create_b_array(input_x, m):
     b = np.zeros(m)
     for i in range(len(input_x)):
         b[input_x[i] - 1] += 1
-    return b
+    return np.array(b)
 
 
 def log_to_regular(param):
@@ -140,29 +147,32 @@ def log_to_regular(param):
 
 
 def compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi, signatures_data):
-    input_x_total = []
+    input_x_total = np.array([])
     # train
     for chromosome in person:
         if chromosome == ignored_chromosome:
             continue
         else:
-            input_x_total.extend(person[chromosome]["Sequence"])
-    initialize_mmm_parameters(signatures_data, initial_pi, input_x_total)
-    fit(input_x_total)
+            np.append(input_x_total, np.array(person[chromosome]["Sequence"]))
+            # input_x_total.extend(person[chromosome]["Sequence"])
+    mmm_parameters = initialize_mmm_parameters(signatures_data, initial_pi, input_x_total)
+    fit(input_x_total, mmm_parameters)
     ignored_sequence = person[ignored_chromosome]["Sequence"]
-    set_t(len(ignored_sequence))
-    set_b(ignored_sequence)
-    return likelihood(ignored_sequence)
+    mmm_parameters["dim_T"] = len(ignored_sequence)
+    mmm_parameters["B_array"] = create_b_array(ignored_sequence, mmm_parameters["dim_m"])
+    # set_t(len(ignored_sequence))
+    # set_b(ignored_sequence)
+    return likelihood(ignored_sequence, mmm_parameters)
 
 
 def person_cross_validation(person, initial_pi, signatures_data):
     total_sum = 0
     for ignored_chromosome in person:
-        start_strand = time.time()
+        # start_strand = time.time()
         total_sum += compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi, signatures_data)
-        end_strand = time.time()
-        print("execution time for one chromosome is: " + str(end_strand - start_strand) + " Seconds, " + str(
-            (end_strand - start_strand) / 60) + " Minutes.")
+        # end_strand = time.time()
+        # print("execution time for one chromosome is: " + str(end_strand - start_strand) + " Seconds, " + str(
+        #     (end_strand - start_strand) / 60) + " Minutes.")
     return total_sum
 
 
@@ -199,9 +209,9 @@ def main_single_fit():
 
     print("started the init")
 
-    initialize_mmm_parameters(signatures_data, initial_pi, input_x)
+    mmm_parameters = initialize_mmm_parameters(signatures_data, initial_pi, input_x)
 
-    fit(input_x)
+    fit(input_x, mmm_parameters)
 
 
 def main_algorithm_1():
@@ -212,11 +222,11 @@ def main_algorithm_1():
 
     with open('data/example.json') as f:
         data = json.load(f)
-    initial_pi = (data['initial_pi'])
+    initial_pi = np.array(data['initial_pi'])
 
     # read signatures array from BRCA-signatures.npy
     # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
-    signatures_data = np.load("data/BRCA-signatures.npy")
+    signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
 
     print("started the init")
 
