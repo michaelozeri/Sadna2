@@ -149,7 +149,7 @@ def compute_cross_validation_for_total_training_data(dict_data, initial_pi, sign
         start = time.time()
         total_sum += person_cross_validation(dict_data[person], initial_pi, signatures_data)
         end = time.time()
-        print("execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
+        print("Execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
             (end - start) / 60) + " Minutes.")
         person_number += 1
     return total_sum
@@ -181,6 +181,14 @@ def main_single_fit():
 
     fit(input_x, mmm_parameters)
 
+    err = 0
+    for i in range(len(initial_pi)):
+        err += abs(log_to_regular(mmm_parameters["log_initial_pi"][i]) - trained_pi[i])
+        # print(abs(mmm.log_to_regular(mmm.log_initial_pi[i]) - trained_pi[i]))
+
+    print(err)
+    # print(mmm.likelihood(dic_data))
+
 
 def main_algorithm_1():
     # read dictionary data from JSON
@@ -196,18 +204,10 @@ def main_algorithm_1():
     # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
     signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
 
-    print("started the init")
+    print("Started cross validation for 1'st type algo")
 
     training = compute_cross_validation_for_total_training_data(dic_data, initial_pi, signatures_data)
-    print("total sum is: "+str(training))
-
-    # err = 0
-    # for i in range(mmm.dim_n):
-    #     err += abs(mmm.log_to_regular(mmm.log_initial_pi[i]) - trained_pi[i])
-    #     # print(abs(mmm.log_to_regular(mmm.log_initial_pi[i]) - trained_pi[i]))
-    #
-    # print(err)
-    # # print(mmm.likelihood(dic_data))
+    print("Total sum is: " + str(training))
 
 
 main_algorithm_1()
