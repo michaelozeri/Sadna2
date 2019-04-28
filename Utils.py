@@ -46,10 +46,10 @@ def switch_strand(current_strand):
         return STRAND_PLUS
 
 
-with open('data/BRCA-strand-info.json') as f1:
-    dic_data = json.load(f1)
-
-start = time.time()
-answer = split_dictionary_to_strands(dic_data)
-end = time.time()
-print("execution time is: " + str(end - start) + " Seconds, " + str((end - start) / 60) + " Minutes.")
+# with open('data/BRCA-strand-info.json') as f1:
+#     dic_data = json.load(f1)
+#
+# start = time.time()
+# answer = split_dictionary_to_strands(dic_data)
+# end = time.time()
+# print("execution time is: " + str(end - start) + " Seconds, " + str((end - start) / 60) + " Minutes.")
