@@ -1,6 +1,5 @@
 import json
 import time
-import numpy as np
 
 STRAND_PLUS = "plus"
 STRAND_MINUS = "minus"
