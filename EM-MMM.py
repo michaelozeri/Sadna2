@@ -3,6 +3,7 @@ from numpy import log, sum, amax, exp, shape
 from scipy.special import logsumexp
 import numpy as np
 import time
+import logging
 
 # we don't want to update signatures array (itay asked) at this point so i made
 # a global to set if to update the signatures data or not at this time
@@ -20,6 +21,12 @@ UPDATE_SIGNATURES_DATA = False
 
 threshold = 0.01
 max_iteration = 1000
+
+######### LOGGER CONFIG #######
+
+logging.basicConfig(filename='./Results/algorithm_1-1_results.log', level=logging.DEBUG,
+                    format='%(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
 
 
 ############################################## MMM FUNCTIONS ##############################################
@@ -90,7 +97,8 @@ def e_step(mmm_parameters):
 def likelihood(input_x_data, mmm_parameters):
     convergence = 0
     for t in range(mmm_parameters[DIM_T_KEY]):
-        temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, int(input_x_data[int(t)])]
+        temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:,
+                                                                  int(input_x_data[int(t)])]
         convergence += logsumexp(temp_log_sum_array)
     return convergence
 
@@ -127,22 +135,24 @@ def compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi, si
             continue
         else:
             input_x_total = np.append(input_x_total, np.array(person[chromosome]["Sequence"]))
-            # input_x_total.extend(person[chromosome]["Sequence"])
     mmm_parameters = initialize_mmm_parameters(signatures_data, initial_pi, input_x_total)
     fit(input_x_total, mmm_parameters)
     ignored_sequence = person[ignored_chromosome]["Sequence"]
     mmm_parameters[DIM_T_KEY] = len(ignored_sequence)
     mmm_parameters[B_ARRAY_KEY] = create_b_array(ignored_sequence, mmm_parameters[DIM_M_KEY])
-    # set_t(len(ignored_sequence))
-    # set_b(ignored_sequence)
     return likelihood(ignored_sequence, mmm_parameters)
 
 
 def person_cross_validation(person, initial_pi, signatures_data):
     total_sum_person = 0
     for ignored_chromosome in person:
-        total_sum_person += compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi, signatures_data)
-        print("total_sum_person is: " + str(total_sum_person) + " after running chromosome: " + str(ignored_chromosome))
+        likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi,
+                                                                              signatures_data)
+        logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
+            likelihood_for_ignored_chromosome))
+        logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in regular space is :" + str(
+            np.exp(likelihood_for_ignored_chromosome)))
+        total_sum_person += likelihood_for_ignored_chromosome
     return total_sum_person
 
 
@@ -151,11 +161,16 @@ def compute_cross_validation_for_total_training_data(dict_data, initial_pi, sign
     person_number = 1
     for person in dict_data:
         start = time.time()
-        total_sum += person_cross_validation(dict_data[person], initial_pi, signatures_data)
-        print("total sum for person: " + str(person_number) + " is: " + str(total_sum))
+        person_cross_validation_result = person_cross_validation(dict_data[person], initial_pi, signatures_data)
+        logger.debug("person_cross_validation_result for person: " + str(person_number) + " in log space is: " + str(
+            person_cross_validation_result))
+        logger.debug("person_cross_validation_result for person: " + str(person_number) + " in regular space is: " + str(
+            np.exp(person_cross_validation_result)))
+        total_sum += person_cross_validation_result
         end = time.time()
-        print("Execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
-            (end - start) / 60) + " Minutes.")
+        logger.debug(
+            "Execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
+                (end - start) / 60) + " Minutes.")
         person_number += 1
     return total_sum
 
@@ -163,7 +178,7 @@ def compute_cross_validation_for_total_training_data(dict_data, initial_pi, sign
 ############################################## START RUN OF FILE ##############################################
 
 
-def main_single_fit():
+def test_MMM_algo():
     # read example data from JSON
     with open('data/example.json') as f:
         data = json.load(f)
@@ -200,19 +215,15 @@ def main_algorithm_1():
     # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
     with open('data/ICGC-BRCA.json') as f1:
         dic_data = json.load(f1)
-
     with open('data/example.json') as f:
         data = json.load(f)
     initial_pi = np.array(data['initial_pi'])
-
     # read signatures array from BRCA-signatures.npy
     # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
     signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
-
-    print("Started cross validation for 1'st type algo")
-
+    logger.debug("Started cross validation for 1'st type algorithm")
     training = compute_cross_validation_for_total_training_data(dic_data, initial_pi, signatures_data)
-    print("Total sum is: " + str(training))
+    logger.debug("Total sum is: " + str(training))
 
 
 # function call
