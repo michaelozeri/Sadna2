@@ -254,7 +254,6 @@ def main_algorithm_1_2():
     logger.debug("Total training sum is: " + str(training))
 
 
-
 def main():
     if sys.argv[1] == "1":
         print("starting run of main 1-1")
