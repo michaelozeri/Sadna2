@@ -26,14 +26,9 @@ max_iteration = 1000
 
 ######### LOGGER CONFIG #######
 
-logging.basicConfig(filename='./Results/algorithm_1-1_results.log', level=logging.DEBUG,
+logging.basicConfig(filename='./Results/algorithm_1-' + sys.argv[1] + '_results.log', level=logging.DEBUG,
                     format='%(name)s - %(levelname)s - %(message)s')
-logger1 = logging.getLogger("logger_for_algo_1_1")
-logger1.propagate = False
-logging.basicConfig(filename='./Results/algorithm_1-2_results.log', level=logging.DEBUG,
-                    format='%(name)s - %(levelname)s - %(message)s')
-logger2 = logging.getLogger("logger_for_algo_1_2")
-logger2.propagate = False
+logger = logging.getLogger("logger_for_algo_1_" + sys.argv[1])
 
 
 ############################################## MMM FUNCTIONS ##############################################
@@ -155,9 +150,9 @@ def person_cross_validation(person, initial_pi, signatures_data):
     for ignored_chromosome in person:
         likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi,
                                                                               signatures_data)
-        logger1.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
+        logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
             likelihood_for_ignored_chromosome))
-        logger1.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in regular space is :" + str(
+        logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in regular space is :" + str(
             np.exp(likelihood_for_ignored_chromosome)))
         total_sum_person += likelihood_for_ignored_chromosome
     return total_sum_person
@@ -169,14 +164,14 @@ def compute_cross_validation_for_total_training_data(dict_data, initial_pi, sign
     for person in dict_data:
         start = time.time()
         person_cross_validation_result = person_cross_validation(dict_data[person], initial_pi, signatures_data)
-        logger1.debug("person_cross_validation_result for person: " + str(person_number) + " in log space is: " + str(
+        logger.debug("person_cross_validation_result for person: " + str(person_number) + " in log space is: " + str(
             person_cross_validation_result))
-        logger1.debug(
+        logger.debug(
             "person_cross_validation_result for person: " + str(person_number) + " in regular space is: " + str(
                 np.exp(person_cross_validation_result)))
         total_sum += person_cross_validation_result
         end = time.time()
-        logger1.debug(
+        logger.debug(
             "Execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
                 (end - start) / 60) + " Minutes.")
         person_number += 1
@@ -229,9 +224,10 @@ def main_algorithm_1_1():
     # read signatures array from BRCA-signatures.npy
     # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
     signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
-    logger1.debug("Started cross validation for 1'st type algorithm")
+    logger.debug("Started cross validation for 1'st type algorithm")
+    print("Started cross validation for 1'st type algorithm")
     training = compute_cross_validation_for_total_training_data(dic_data, initial_pi, signatures_data)
-    logger1.debug("Total sum is: " + str(training))
+    logger.debug("Total sum is: " + str(training))
 
 
 def main_algorithm_1_2():
@@ -246,16 +242,16 @@ def main_algorithm_1_2():
     # read signatures array from BRCA-signatures.npy
     # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
     signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
-    logger2.debug("Started cross validation for 1'st algorithm type 2")
-    logger2.debug("########################## started PLUS strand for algorithm 1-2 ##################################")
+    logger.debug("Started cross validation for 1'st algorithm type 2")
+    logger.debug("########################## started PLUS strand for algorithm 1-2 ##################################")
     training = compute_cross_validation_for_total_training_data(dic_finals["strand_dict_plus"], initial_pi,
                                                                 signatures_data)
-    logger2.debug("Total training sum is: " + str(training))
-    logger2.debug(
+    logger.debug("Total training sum is: " + str(training))
+    logger.debug(
         "########################## started MINUS strand for algorithm 1-2 ##################################")
     training = compute_cross_validation_for_total_training_data(dic_finals["strand_dict_minus"], initial_pi,
                                                                 signatures_data)
-    logger2.debug("Total training sum is: " + str(training))
+    logger.debug("Total training sum is: " + str(training))
 
 
 def main():
