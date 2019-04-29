@@ -6,6 +6,7 @@
       <change beforePath="$PROJECT_DIR$/EM-MMM.py" beforeDir="false" afterPath="$PROJECT_DIR$/EM-MMM.py" afterDir="false" />
     </list>
     <ignored path="C:\Users\michael\PycharmProjects\Sadna2\.idea\shelf/" />
+    <ignored path="C:\Users\win7\Desktop\Sadna2\.idea\shelf/" />
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -21,8 +22,8 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/EM-MMM.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="-3652">
-              <caret line="26" column="31" selection-start-line="26" selection-start-column="31" selection-end-line="26" selection-end-column="31" />
+            <state relative-caret-position="247">
+              <caret line="256" lean-forward="true" selection-start-line="256" selection-end-line="256" />
               <folding>
                 <element signature="e#0#11#0" expanded="true" />
               </folding>
@@ -33,7 +34,7 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/Utils.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1012">
+            <state relative-caret-position="782">
               <caret line="47" selection-start-line="47" selection-end-line="47" />
               <folding>
                 <element signature="e#0#11#0" expanded="true" />
@@ -117,6 +118,7 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
+      <pane id="Scope" />
       <pane id="ProjectPane">
         <subPane>
           <expand>
@@ -133,7 +135,6 @@
           <select />
         </subPane>
       </pane>
-      <pane id="Scope" />
     </panes>
   </component>
   <component name="PropertiesComponent">
@@ -240,6 +241,7 @@
       <workItem from="1556475885307" duration="1438000" />
       <workItem from="1556478341460" duration="1118000" />
       <workItem from="1556480152469" duration="1757000" />
+      <workItem from="1556562293691" duration="283000" />
     </task>
     <task id="LOCAL-00001" summary="Created new Parse utils">
       <created>1553354859187</created>
@@ -287,13 +289,13 @@
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="39076000" />
+    <option name="totallyTimeSpent" value="39359000" />
   </component>
   <component name="ToolWindowManager">
-    <frame x="-8" y="-8" width="1936" height="1056" extended-state="6" />
+    <frame x="-8" y="-8" width="1382" height="744" extended-state="6" />
     <editor active="true" />
     <layout>
-      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.2196162" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.22314675" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
@@ -397,29 +399,11 @@
   </component>
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/utils" />
-    <entry file="file://$USER_HOME$/.PyCharm2018.3/system/python_stubs/-229213283/builtins.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="188">
-          <caret line="2814" column="8" selection-start-line="2814" selection-start-column="8" selection-end-line="2814" selection-end-column="8" />
-        </state>
-      </provider>
-    </entry>
+    <entry file="file://$USER_HOME$/.PyCharm2018.3/system/python_stubs/-229213283/builtins.py" />
     <entry file="file://$PROJECT_DIR$/MMM.py" />
     <entry file="file://$PROJECT_DIR$/CROSS_VALIDATION.py" />
-    <entry file="file://$USER_HOME$/.PyCharm2018.3/system/python_stubs/-229213283/numpy/core/umath.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="237">
-          <caret line="2962" column="4" selection-start-line="2962" selection-start-column="4" selection-end-line="2962" selection-end-column="4" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/../ex4_mich/venv/Lib/site-packages/numpy/core/fromnumeric.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="299">
-          <caret line="82" selection-start-line="82" selection-end-line="82" />
-        </state>
-      </provider>
-    </entry>
+    <entry file="file://$USER_HOME$/.PyCharm2018.3/system/python_stubs/-229213283/numpy/core/umath.py" />
+    <entry file="file://$PROJECT_DIR$/../ex4_mich/venv/Lib/site-packages/numpy/core/fromnumeric.py" />
     <entry file="file://$PROJECT_DIR$/data/ICGC-BRCA.json">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="220">
@@ -460,27 +444,21 @@
     <entry file="file://$PROJECT_DIR$/get-pip.py">
       <provider selected="true" editor-type-id="text-editor" />
     </entry>
-    <entry file="file://$PROJECT_DIR$/Utils.py">
+    <entry file="file://$USER_HOME$/AppData/Local/Programs/Python/Python37/Lib/logging/__init__.py" />
+    <entry file="file://$PROJECT_DIR$/EM-MMM.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1012">
-          <caret line="47" selection-start-line="47" selection-end-line="47" />
+        <state relative-caret-position="247">
+          <caret line="256" lean-forward="true" selection-start-line="256" selection-end-line="256" />
           <folding>
             <element signature="e#0#11#0" expanded="true" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$USER_HOME$/AppData/Local/Programs/Python/Python37/Lib/logging/__init__.py">
+    <entry file="file://$PROJECT_DIR$/Utils.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="342">
-          <caret line="1342" column="64" lean-forward="true" selection-start-line="1342" selection-start-column="64" selection-end-line="1342" selection-end-column="64" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/EM-MMM.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-3652">
-          <caret line="26" column="31" selection-start-line="26" selection-start-column="31" selection-end-line="26" selection-end-column="31" />
+        <state relative-caret-position="782">
+          <caret line="47" selection-start-line="47" selection-end-line="47" />
           <folding>
             <element signature="e#0#11#0" expanded="true" />
           </folding>
