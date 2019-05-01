@@ -30,12 +30,14 @@ def split_dictionary_to_strands(old_dict):
 
 
 def split_chromosome_data(start_strand, strand_sequence, strand_info):
-    split_object = {STRAND_PLUS: [], STRAND_MINUS: []}
+    split_object = {STRAND_PLUS: {}, STRAND_MINUS: {}}
+    split_object[STRAND_PLUS]["Sequence"] = []
+    split_object[STRAND_MINUS]["Sequence"] = []
     current_strand = start_strand
     for i in range(len(strand_sequence)):
         if strand_info[i] == 0:
             current_strand = switch_strand(current_strand)
-        split_object[current_strand].append(strand_sequence[i])
+        split_object[current_strand]["Sequence"].append(strand_sequence[i])
     return split_object
 
 
