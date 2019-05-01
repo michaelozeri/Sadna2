@@ -1,0 +1,1001 @@
+Index: EM-MMM.py
+===================================================================
+--- EM-MMM.py	(revision ba2de90f6951334af313eba25297508022aaa628)
++++ EM-MMM.py	(revision ba2de90f6951334af313eba25297508022aaa628)
+@@ -1,282 +0,0 @@
+-import json
+-from numpy import log, sum, amax, exp, shape
+-from scipy.special import logsumexp
+-import numpy as np
+-import time
+-import logging
+-import sys
+-import Utils
+-
+-# we don't want to update signatures array (itay asked) at this point so i made
+-# a global to set if to update the signatures data or not at this time
+-LOG_INITIAL_PI_KEY = "log_initial_pi"
+-LOG_SIGNATURES_DATA_KEY = "log_signatures_data"
+-A_ARRAY_KEY = "a_array"
+-DIM_N_KEY = "dim_n"
+-E_ARRAY_KEY = "e_array"
+-B_ARRAY_KEY = "b_array"
+-DIM_M_KEY = "dim_m"
+-DIM_T_KEY = "dim_t"
+-UPDATE_SIGNATURES_DATA = False
+-
+-######### CROSS VALIDATION FIELDS #######
+-
+-threshold = 0.01
+-max_iteration = 1000
+-
+-######### LOGGER CONFIG #######
+-
+-logging.basicConfig(filename='./Results/algorithm_1-' + sys.argv[1] + '_results.log', level=logging.DEBUG,
+-                    format='%(name)s - %(levelname)s - %(message)s')
+-logger = logging.getLogger("logger_for_algo_1_" + sys.argv[1])
+-
+-
+-############################################## MMM FUNCTIONS ##############################################
+-
+-
+-def convert_to_log_scale(initial_pi):
+-    return np.array(log(initial_pi))
+-
+-
+-def convert_to_log_scale_eij(signatures_data):
+-    return np.array(log(signatures_data))
+-
+-
+-def initialize_chromosome_mmm_parameters(input_x, mmm_person_params):
+-    dim_m = mmm_person_params[DIM_M_KEY]
+-    dim_n = mmm_person_params[DIM_N_KEY]
+-    dim_t = len(input_x)
+-    b_array = create_b_array(input_x, dim_m)
+-    # are calculated each iteration
+-    e_array = np.zeros((dim_n, dim_m))
+-    a_array = np.zeros(dim_n)
+-    log_signatures_data_copy = mmm_person_params[LOG_SIGNATURES_DATA_KEY].copy()
+-    log_initial_pi_copy = mmm_person_params[LOG_INITIAL_PI_KEY].copy()
+-    return {DIM_T_KEY: dim_t, B_ARRAY_KEY: b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array,
+-            LOG_SIGNATURES_DATA_KEY: log_signatures_data_copy, LOG_INITIAL_PI_KEY: log_initial_pi_copy,
+-            DIM_N_KEY: dim_n, DIM_M_KEY: dim_m}
+-
+-
+-def assign_person_params(initial_pi, signatures_data):
+-    # defining the mmm
+-    log_signatures_data = convert_to_log_scale_eij(signatures_data)
+-    log_initial_pi = convert_to_log_scale(initial_pi)
+-    # constants - don't change
+-    dim_n = len(log_signatures_data)
+-    dim_m = len(log_signatures_data[0])
+-    return {DIM_M_KEY: dim_m, DIM_N_KEY: dim_n,
+-            LOG_INITIAL_PI_KEY: log_initial_pi, LOG_SIGNATURES_DATA_KEY: log_signatures_data}
+-
+-
+-# on input data (sequence or sequences) do EM iterations until the model improvement is less
+-# than  threshold , or until max_iterations iterations.
+-def fit(input_x_data, total_mmm_parameters):
+-    current_number_of_iterations = 1
+-    old_score = likelihood(input_x_data, total_mmm_parameters)
+-    e_step(total_mmm_parameters)
+-    m_step(total_mmm_parameters)
+-    new_score = likelihood(input_x_data, total_mmm_parameters)
+-    while (abs(new_score - old_score) > threshold) and (current_number_of_iterations < max_iteration):
+-        # print("delta is: " + abs(new_score - old_score).__str__())
+-        old_score = new_score
+-        e_step(total_mmm_parameters)
+-        # print(self.log_initial_pi)
+-        m_step(total_mmm_parameters)
+-        # print(self.log_initial_pi)
+-        new_score = likelihood(input_x_data, total_mmm_parameters)
+-        current_number_of_iterations += 1
+-        # print("number of iterations is: " + number_of_iterations.__str__())
+-    return
+-
+-
+-def e_step(mmm_parameters):
+-    # this is the correct calc for the Eij by the PDF
+-    for i in range(mmm_parameters[DIM_N_KEY]):
+-        for j in range(mmm_parameters[DIM_M_KEY]):
+-            temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j]
+-            mmm_parameters[E_ARRAY_KEY][i][j] = (
+-                    log(mmm_parameters[B_ARRAY_KEY][j]) + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
+-                    mmm_parameters[LOG_SIGNATURES_DATA_KEY][i][
+-                        j] - logsumexp(temp_log_sum_array))
+-    # this is from the mail with itay to calculate log(Ai)
+-    mmm_parameters[A_ARRAY_KEY] = logsumexp(mmm_parameters[E_ARRAY_KEY], axis=1)
+-
+-
+-# checks convergence from formula
+-# on input on input data (sequence or sequences), return log probability to see it
+-def likelihood(input_x_data, mmm_parameters):
+-    convergence = 0
+-    for t in range(mmm_parameters[DIM_T_KEY]):
+-        temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:,
+-                                                                  int(input_x_data[int(t)])]
+-        convergence += logsumexp(temp_log_sum_array)
+-    return convergence
+-
+-
+-def m_step(mmm_parameters):
+-    mmm_parameters[LOG_INITIAL_PI_KEY] = mmm_parameters[A_ARRAY_KEY] - log(mmm_parameters[DIM_T_KEY])
+-    if UPDATE_SIGNATURES_DATA:
+-        for i in range(mmm_parameters[DIM_N_KEY]):
+-            for j in range(mmm_parameters[DIM_M_KEY]):
+-                # numerically stable for pi - Eij is already log(Eij)
+-                mmm_parameters[LOG_SIGNATURES_DATA_KEY][i][j] = mmm_parameters[E_ARRAY_KEY][i][j] - log(
+-                    sum(log_to_regular(mmm_parameters[E_ARRAY_KEY]), axis=1)[j])
+-
+-
+-def create_b_array(input_x, m):
+-    b = np.zeros(m)
+-    for i in range(len(input_x)):
+-        b[int(input_x[i] - 1)] += 1
+-    return np.array(b)
+-
+-
+-def log_to_regular(param):
+-    return exp(param)
+-
+-
+-############################################## CROSS VALIDATION FUNCTIONS ##############################################
+-
+-
+-def compute_likelihood_for_chromosome(ignored_chromosome, person, mmm_person_params, input_x_total):
+-    mmm_chromosome_params = initialize_chromosome_mmm_parameters(input_x_total, mmm_person_params)
+-    fit(input_x_total, mmm_chromosome_params)
+-    ignored_sequence = person[ignored_chromosome]["Sequence"]
+-    mmm_chromosome_params[DIM_T_KEY] = len(ignored_sequence)
+-    mmm_chromosome_params[B_ARRAY_KEY] = create_b_array(ignored_sequence,
+-                                                        mmm_chromosome_params[DIM_M_KEY])
+-    return likelihood(ignored_sequence, mmm_chromosome_params)
+-
+-
+-def person_cross_validation(person, mmm_person_params):
+-    total_sum_person = 0
+-    input_x_total = np.array([])
+-    # train
+-    for chromosome in person:
+-        chromosome_sequence = np.array(person[chromosome]["Sequence"])
+-        input_x_total = np.append(input_x_total, chromosome_sequence)
+-    temp_location_sum = 0
+-    for ignored_chromosome in person:
+-        start_remove_index = temp_location_sum
+-        end_remove_index = temp_location_sum + len(person[ignored_chromosome]["Sequence"])
+-        input_x_after_remove = np.delete(input_x_total, np.s_[start_remove_index:end_remove_index])
+-        likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(ignored_chromosome, person,
+-                                                                              mmm_person_params, input_x_after_remove)
+-        temp_location_sum = end_remove_index
+-        logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
+-            likelihood_for_ignored_chromosome))
+-        logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in regular space is :" + str(
+-            np.exp(likelihood_for_ignored_chromosome)))
+-        total_sum_person += likelihood_for_ignored_chromosome
+-    return total_sum_person
+-
+-
+-def compute_cross_validation_for_total_training_data(dict_data, initial_pi, signatures_data):
+-    total_sum = 0
+-    person_number = 1
+-    mmm_person_params = assign_person_params(initial_pi, signatures_data)
+-    for person in dict_data:
+-        start = time.time()
+-        person_cross_validation_result = person_cross_validation(dict_data[person], mmm_person_params)
+-        logger.debug("person_cross_validation_result for person: " + str(person_number) + " in log space is: " + str(
+-            person_cross_validation_result))
+-        logger.debug(
+-            "person_cross_validation_result for person: " + str(person_number) + " in regular space is: " + str(
+-                np.exp(person_cross_validation_result)))
+-        total_sum += person_cross_validation_result
+-        end = time.time()
+-        logger.debug(
+-            "Execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
+-                (end - start) / 60) + " Minutes.")
+-        person_number += 1
+-    return total_sum
+-
+-
+-############################################## START RUN OF FILE ##############################################
+-
+-
+-def test_MMM_algo():
+-    # read example data from JSON
+-    with open('data/example.json') as f:
+-        data = json.load(f)
+-    initial_pi = (data['initial_pi'])
+-    trained_pi = data['trained_pi']
+-    input_x = data['input']
+-
+-    # read dictionary data from JSON
+-    # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
+-    with open('data/ICGC-BRCA.json') as f1:
+-        dic_data = json.load(f1)
+-
+-    # read signatures array from BRCA-signatures.npy
+-    # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
+-    signatures_data = np.load("data/BRCA-signatures.npy")
+-
+-    print("started the init")
+-    person_params = assign_person_params(initial_pi, signatures_data)
+-    mmm_parameters = initialize_chromosome_mmm_parameters(input_x, person_params)
+-
+-    fit(input_x, mmm_parameters)
+-
+-    err = 0
+-    for i in range(len(initial_pi)):
+-        err += abs(log_to_regular(mmm_parameters[LOG_INITIAL_PI_KEY][i]) - trained_pi[i])
+-        # print(abs(mmm.log_to_regular(mmm.log_initial_pi[i]) - trained_pi[i]))
+-
+-    print(err)
+-    # print(mmm.likelihood(dic_data))
+-
+-
+-def main_algorithm_1_1():
+-    # read dictionary data from JSON
+-    # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
+-    with open('data/ICGC-BRCA.json') as f1:
+-        dic_data = json.load(f1)
+-    with open('data/example.json') as f:
+-        data = json.load(f)
+-    initial_pi = np.array(data['initial_pi'])
+-    # read signatures array from BRCA-signatures.npy
+-    # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
+-    signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
+-    logger.debug("Started cross validation for 1'st type algorithm")
+-    print("Started cross validation for 1'st type algorithm")
+-    training = compute_cross_validation_for_total_training_data(dic_data, initial_pi, signatures_data)
+-    logger.debug("Total sum is: " + str(training))
+-
+-
+-def main_algorithm_1_2():
+-    # read dictionary data from JSON
+-    # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
+-    with open('data/BRCA-strand-info.json') as f1:
+-        dic_data = json.load(f1)
+-    dic_finals = Utils.split_dictionary_to_strands(dic_data)
+-    with open('data/example.json') as f:
+-        data = json.load(f)
+-    initial_pi = np.array(data['initial_pi'])
+-    # read signatures array from BRCA-signatures.npy
+-    # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
+-    signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
+-    logger.debug("Started cross validation for 1'st algorithm type 2")
+-    logger.debug("########################## started PLUS strand for algorithm 1-2 ##################################")
+-    training = compute_cross_validation_for_total_training_data(dic_finals["strand_dict_plus"], initial_pi,
+-                                                                signatures_data)
+-    logger.debug("Total training sum is: " + str(training))
+-    logger.debug(
+-        "########################## started MINUS strand for algorithm 1-2 ##################################")
+-    training = compute_cross_validation_for_total_training_data(dic_finals["strand_dict_minus"], initial_pi,
+-                                                                signatures_data)
+-    logger.debug("Total training sum is: " + str(training))
+-
+-
+-def main():
+-    if sys.argv[1] == "test":
+-        test_MMM_algo()
+-    elif sys.argv[1] == "1":
+-        print("starting run of main 1-1")
+-        main_algorithm_1_1()
+-    else:
+-        print("starting run of main 1-2")
+-        main_algorithm_1_2()
+-
+-
+-# function call
+-main()
+Index: emMmm.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- emMmm.py	(date 1556744145839)
++++ emMmm.py	(date 1556744145839)
+@@ -0,0 +1,280 @@
++import json
++from numpy import log, sum, amax, exp, shape
++from scipy.special import logsumexp
++import numpy as np
++import time
++import logging
++import sys
++import Utils
++
++
++class emMmm:
++    # we don't want to update signatures array (itay asked) at this point so i made
++    # a global to set if to update the signatures data or not at this time
++    LOG_INITIAL_PI_KEY = "log_initial_pi"
++    LOG_SIGNATURES_DATA_KEY = "log_signatures_data"
++    A_ARRAY_KEY = "a_array"
++    DIM_N_KEY = "dim_n"
++    E_ARRAY_KEY = "e_array"
++    B_ARRAY_KEY = "b_array"
++    DIM_M_KEY = "dim_m"
++    DIM_T_KEY = "dim_t"
++    UPDATE_SIGNATURES_DATA = False
++
++    ######### CROSS VALIDATION FIELDS #######
++
++    threshold = 0.01
++    max_iteration = 1000
++
++    ######### LOGGER CONFIG #######
++
++    logging.basicConfig(filename='./Results/algorithm_1-' + "1" + '_results.log', level=logging.DEBUG,
++                        format='%(name)s - %(levelname)s - %(message)s')
++    logger = logging.getLogger("logger_for_algo_1_" + "1")
++
++    ############################################## MMM FUNCTIONS ##############################################
++
++    def convert_to_log_scale(self, initial_pi):
++        return np.array(log(initial_pi))
++
++    def convert_to_log_scale_eij(self, signatures_data):
++        return np.array(log(signatures_data))
++
++    def initialize_chromosome_mmm_parameters(self, input_x, mmm_person_params):
++        dim_m = mmm_person_params[self.DIM_M_KEY]
++        dim_n = mmm_person_params[self.DIM_N_KEY]
++        dim_t = len(input_x)
++        b_array = self.create_b_array(input_x, dim_m)
++        # are calculated each iteration
++        e_array = np.zeros((dim_n, dim_m))
++        a_array = np.zeros(dim_n)
++        log_signatures_data_copy = mmm_person_params[self.LOG_SIGNATURES_DATA_KEY].copy()
++        log_initial_pi_copy = mmm_person_params[self.LOG_INITIAL_PI_KEY].copy()
++        return {self.DIM_T_KEY: dim_t, self.B_ARRAY_KEY: b_array, self.E_ARRAY_KEY: e_array, self.A_ARRAY_KEY: a_array,
++                self.LOG_SIGNATURES_DATA_KEY: log_signatures_data_copy, self.LOG_INITIAL_PI_KEY: log_initial_pi_copy,
++                self.DIM_N_KEY: dim_n, self.DIM_M_KEY: dim_m}
++
++    def assign_person_params(self, initial_pi, signatures_data):
++        # defining the mmm
++        log_signatures_data = self.convert_to_log_scale_eij(signatures_data)
++        log_initial_pi = self.convert_to_log_scale(initial_pi)
++        # constants - don't change
++        dim_n = len(log_signatures_data)
++        dim_m = len(log_signatures_data[0])
++        return {self.DIM_M_KEY: dim_m, self.DIM_N_KEY: dim_n,
++                self.LOG_INITIAL_PI_KEY: log_initial_pi, self.LOG_SIGNATURES_DATA_KEY: log_signatures_data}
++
++    # on input data (sequence or sequences) do EM iterations until the model improvement is less
++    # than  threshold , or until max_iterations iterations.
++    def fit(self, input_x_data, total_mmm_parameters):
++        current_number_of_iterations = 1
++        old_score = self.likelihood(input_x_data, total_mmm_parameters)
++        self.e_step(total_mmm_parameters)
++        self.m_step(total_mmm_parameters)
++        new_score = self.likelihood(input_x_data, total_mmm_parameters)
++        while (abs(new_score - old_score) > self.threshold) and (current_number_of_iterations < self.max_iteration):
++            # print("delta is: " + abs(new_score - old_score).__str__())
++            old_score = new_score
++            self.e_step(total_mmm_parameters)
++            # print(self.log_initial_pi)
++            self.m_step(total_mmm_parameters)
++            # print(self.log_initial_pi)
++            new_score = self.likelihood(input_x_data, total_mmm_parameters)
++            current_number_of_iterations += 1
++            # print("number of iterations is: " + number_of_iterations.__str__())
++        return
++
++    def e_step(self, mmm_parameters):
++        # this is the correct calc for the Eij by the PDF
++        for i in range(mmm_parameters[self.DIM_N_KEY]):
++            for j in range(mmm_parameters[self.DIM_M_KEY]):
++                temp_log_sum_array = mmm_parameters[self.LOG_INITIAL_PI_KEY] + mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][:, j]
++                mmm_parameters[self.E_ARRAY_KEY][i][j] = (
++                        log(mmm_parameters[self.B_ARRAY_KEY][j]) + mmm_parameters[self.LOG_INITIAL_PI_KEY][i] +
++                        mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][i][j] - logsumexp(temp_log_sum_array))
++        # this is from the mail with itay to calculate log(Ai)
++        mmm_parameters[self.A_ARRAY_KEY] = logsumexp(mmm_parameters[self.E_ARRAY_KEY], axis=1)
++
++    def new_e_step(self, mmm_parameters):
++        transpose = np.transpose(mmm_parameters[self.LOG_SIGNATURES_DATA_KEY])
++        # this is the correct calc for the Eij by the PDF
++        for i in range(mmm_parameters[self.DIM_N_KEY]):
++            temp_log_sum_array = mmm_parameters[self.LOG_INITIAL_PI_KEY] + transpose[i]
++            mmm_parameters[self.E_ARRAY_KEY][i] = (
++                    log(mmm_parameters[self.B_ARRAY_KEY]) + mmm_parameters[self.LOG_INITIAL_PI_KEY][i] +
++                    mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][i] - logsumexp(temp_log_sum_array))
++        # this is from the mail with itay to calculate log(Ai)
++        mmm_parameters[self.A_ARRAY_KEY] = logsumexp(mmm_parameters[self.E_ARRAY_KEY], axis=1)
++
++    # checks convergence from formula
++    # on input on input data (sequence or sequences), return log probability to see it
++    def likelihood(self, input_x_data, mmm_parameters):
++        convergence = 0
++        for t in range(mmm_parameters[self.DIM_T_KEY]):
++            temp_log_sum_array = mmm_parameters[self.LOG_INITIAL_PI_KEY] + mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][
++                                                                           :,
++                                                                           int(input_x_data[int(t)])]
++            convergence += logsumexp(temp_log_sum_array)
++        return convergence
++
++    def m_step(self, mmm_parameters):
++        mmm_parameters[self.LOG_INITIAL_PI_KEY] = mmm_parameters[self.A_ARRAY_KEY] - log(mmm_parameters[self.DIM_T_KEY])
++        if self.UPDATE_SIGNATURES_DATA:
++            for i in range(mmm_parameters[self.DIM_N_KEY]):
++                for j in range(mmm_parameters[self.DIM_M_KEY]):
++                    # numerically stable for pi - Eij is already log(Eij)
++                    mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][i][j] = mmm_parameters[self.E_ARRAY_KEY][i][j] - log(
++                        sum(self.log_to_regular(mmm_parameters[self.E_ARRAY_KEY]), axis=1)[j])
++
++    def create_b_array(self, input_x, m):
++        b = np.zeros(m)
++        for i in range(len(input_x)):
++            b[int(input_x[i] - 1)] += 1
++        return np.array(b)
++
++    def log_to_regular(self, param):
++        return exp(param)
++
++    ############################################## CROSS VALIDATION FUNCTIONS ##############################################
++
++    def compute_likelihood_for_chromosome(self, ignored_chromosome, person, mmm_person_params, input_x_total):
++        mmm_chromosome_params = self.initialize_chromosome_mmm_parameters(input_x_total, mmm_person_params)
++        self.fit(input_x_total, mmm_chromosome_params)
++        ignored_sequence = person[ignored_chromosome]["Sequence"]
++        mmm_chromosome_params[self.DIM_T_KEY] = len(ignored_sequence)
++        mmm_chromosome_params[self.B_ARRAY_KEY] = self.create_b_array(ignored_sequence,
++                                                                      mmm_chromosome_params[self.DIM_M_KEY])
++        return self.likelihood(ignored_sequence, mmm_chromosome_params)
++
++    def person_cross_validation(self, person, mmm_person_params):
++        total_sum_person = 0
++        input_x_total = np.array([])
++        # train
++        for chromosome in person:
++            chromosome_sequence = np.array(person[chromosome]["Sequence"])
++            input_x_total = np.append(input_x_total, chromosome_sequence)
++        temp_location_sum = 0
++        for ignored_chromosome in person:
++            start_remove_index = temp_location_sum
++            end_remove_index = temp_location_sum + len(person[ignored_chromosome]["Sequence"])
++            input_x_after_remove = np.delete(input_x_total, np.s_[start_remove_index:end_remove_index])
++            likelihood_for_ignored_chromosome = self.compute_likelihood_for_chromosome(ignored_chromosome, person,
++                                                                                       mmm_person_params,
++                                                                                       input_x_after_remove)
++            temp_location_sum = end_remove_index
++            self.logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
++                likelihood_for_ignored_chromosome))
++            self.logger.debug(
++                "likelihood_for_ignored_chromosome: " + ignored_chromosome + " in regular space is :" + str(
++                    np.exp(likelihood_for_ignored_chromosome)))
++            total_sum_person += likelihood_for_ignored_chromosome
++        return total_sum_person
++
++    def compute_cross_validation_for_total_training_data(self, dict_data, initial_pi, signatures_data):
++        total_sum = 0
++        person_number = 1
++        mmm_person_params = self.assign_person_params(initial_pi, signatures_data)
++        for person in dict_data:
++            start = time.time()
++            person_cross_validation_result = self.person_cross_validation(dict_data[person], mmm_person_params)
++            self.logger.debug(
++                "person_cross_validation_result for person: " + str(person_number) + " in log space is: " + str(
++                    person_cross_validation_result))
++            self.logger.debug(
++                "person_cross_validation_result for person: " + str(person_number) + " in regular space is: " + str(
++                    np.exp(person_cross_validation_result)))
++            total_sum += person_cross_validation_result
++            end = time.time()
++            self.logger.debug(
++                "Execution time for person " + str(person_number) + " is: " + str(end - start) + " Seconds, " + str(
++                    (end - start) / 60) + " Minutes.")
++            person_number += 1
++        return total_sum
++
++    ############################################## START RUN OF FILE ##############################################
++
++    def test_MMM_algo(self):
++        # read example data from JSON
++        with open('data/example.json') as f:
++            data = json.load(f)
++        initial_pi = (data['initial_pi'])
++        trained_pi = data['trained_pi']
++        input_x = data['input']
++
++        # read dictionary data from JSON
++        # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
++        with open('data/ICGC-BRCA.json') as f1:
++            dic_data = json.load(f1)
++
++        # read signatures array from BRCA-signatures.npy
++        # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
++        signatures_data = np.load("data/BRCA-signatures.npy")
++
++        print("started the init")
++        person_params = self.assign_person_params(initial_pi, signatures_data)
++        mmm_parameters = self.initialize_chromosome_mmm_parameters(input_x, person_params)
++
++        self.fit(input_x, mmm_parameters)
++
++        err = 0
++        for i in range(len(initial_pi)):
++            err += abs(self.log_to_regular(mmm_parameters[self.LOG_INITIAL_PI_KEY][i]) - trained_pi[i])
++            # print(abs(mmm.log_to_regular(mmm.log_initial_pi[i]) - trained_pi[i]))
++
++        print(err)
++        # print(mmm.likelihood(dic_data))
++
++    def main_algorithm_1_1(self):
++        # read dictionary data from JSON
++        # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
++        with open('data/ICGC-BRCA.json') as f1:
++            dic_data = json.load(f1)
++        with open('data/example.json') as f:
++            data = json.load(f)
++        initial_pi = np.array(data['initial_pi'])
++        # read signatures array from BRCA-signatures.npy
++        # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
++        signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
++        self.logger.debug("Started cross validation for 1'st type algorithm")
++        print("Started cross validation for 1'st type algorithm")
++        training = self.compute_cross_validation_for_total_training_data(dic_data, initial_pi, signatures_data)
++        self.logger.debug("Total sum is: " + str(training))
++
++    def main_algorithm_1_2(self):
++        # read dictionary data from JSON
++        # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
++        with open('data/BRCA-strand-info.json') as f1:
++            dic_data = json.load(f1)
++        dic_finals = Utils.split_dictionary_to_strands(dic_data)
++        with open('data/example.json') as f:
++            data = json.load(f)
++        initial_pi = np.array(data['initial_pi'])
++        # read signatures array from BRCA-signatures.npy
++        # this is an array of 12x96 - [i,j] is e_ij - fixed in this case until we change
++        signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
++        self.logger.debug("Started cross validation for 1'st algorithm type 2")
++        self.logger.debug(
++            "########################## started PLUS strand for algorithm 1-2 ##################################")
++        training = self.compute_cross_validation_for_total_training_data(dic_finals["strand_dict_plus"], initial_pi,
++                                                                         signatures_data)
++        self.logger.debug("Total training sum is: " + str(training))
++        self.logger.debug(
++            "########################## started MINUS strand for algorithm 1-2 ##################################")
++        training = self.compute_cross_validation_for_total_training_data(dic_finals["strand_dict_minus"], initial_pi,
++                                                                         signatures_data)
++        self.logger.debug("Total training sum is: " + str(training))
++
++    def main(self, choose):
++        if choose == "test":
++            self.test_MMM_algo()
++        elif choose == "1":
++            print("starting run of main 1-1")
++            self.main_algorithm_1_1()
++        else:
++            print("starting run of main 1-2")
++            self.main_algorithm_1_2()
++
++
++# function call
++e = emMmm()
++e.main(sys.argv[1])
+Index: test_emMmm.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- test_emMmm.py	(date 1556744060057)
++++ test_emMmm.py	(date 1556744060057)
+@@ -0,0 +1,16 @@
++from unittest import TestCase
++import numpy as np
++
++from emMmm import emMmm
++
++
++class TestEmMmm(TestCase):
++
++    def test_e_step(self):
++        self.e = emMmm()
++        mmm_params = {self.e.DIM_M_KEY: 2, self.e.DIM_N_KEY: 3, self.e.LOG_INITIAL_PI_KEY: np.array([4, 4, 3]),
++                      self.e.LOG_SIGNATURES_DATA_KEY: np.array([[2, 3], [1, 3], [1, 1]]),
++                      self.e.E_ARRAY_KEY: np.zeros((2, 3)), self.e.A_ARRAY_KEY: np.zeros(2),
++                      self.e.B_ARRAY_KEY: np.array([2, 3])}
++        self.e.e_step(mmm_params)
++        self.fail()
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"ChangeListManager\">\r\n    <list default=\"true\" id=\"005d87d3-de09-4e84-b87e-c8613c6d656b\" name=\"Default Changelist\" comment=\"\">\r\n      <change beforePath=\"$PROJECT_DIR$/.gitignore\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.gitignore\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/Sadna2.iml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/Sadna2.iml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/misc.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/misc.xml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/.idea/workspace.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/workspace.xml\" afterDir=\"false\" />\r\n      <change beforePath=\"$PROJECT_DIR$/EM-MMM.py\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/EM-MMM.py\" afterDir=\"false\" />\r\n    </list>\r\n    <ignored path=\"C:\\Users\\michael\\PycharmProjects\\Sadna2\\.idea\\shelf/\" />\r\n    <option name=\"EXCLUDED_CONVERTED_TO_IGNORED\" value=\"true\" />\r\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\r\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\r\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\r\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\r\n  </component>\r\n  <component name=\"CoverageDataManager\">\r\n    <SUITE FILE_PATH=\"coverage/Sadna2$utils.coverage\" NAME=\"utils Coverage Results\" MODIFIED=\"1553358593011\" SOURCE_PROVIDER=\"com.intellij.coverage.DefaultCoverageFileProvider\" RUNNER=\"coverage.py\" COVERAGE_BY_TEST_ENABLED=\"true\" COVERAGE_TRACING_ENABLED=\"false\" WORKING_DIRECTORY=\"$PROJECT_DIR$\" />\r\n    <SUITE FILE_PATH=\"coverage/Sadna2$EM_MMM.coverage\" NAME=\"EM-MMM Coverage Results\" MODIFIED=\"1555761690267\" SOURCE_PROVIDER=\"com.intellij.coverage.DefaultCoverageFileProvider\" RUNNER=\"coverage.py\" COVERAGE_BY_TEST_ENABLED=\"true\" COVERAGE_TRACING_ENABLED=\"false\" WORKING_DIRECTORY=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"FileEditorManager\">\r\n    <leaf SIDE_TABS_SIZE_LIMIT_KEY=\"300\">\r\n      <file pinned=\"false\" current-in-tab=\"true\">\r\n        <entry file=\"file://$PROJECT_DIR$/EM-MMM.py\">\r\n          <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n            <state relative-caret-position=\"49\">\r\n              <caret line=\"148\" lean-forward=\"true\" selection-start-line=\"148\" selection-end-line=\"148\" />\r\n              <folding>\r\n                <element signature=\"e#0#11#0\" expanded=\"true\" />\r\n              </folding>\r\n            </state>\r\n          </provider>\r\n        </entry>\r\n      </file>\r\n      <file pinned=\"false\" current-in-tab=\"false\">\r\n        <entry file=\"file://$PROJECT_DIR$/Utils.py\">\r\n          <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n            <state relative-caret-position=\"286\">\r\n              <caret line=\"13\" column=\"17\" selection-start-line=\"13\" selection-start-column=\"17\" selection-end-line=\"13\" selection-end-column=\"17\" />\r\n              <folding>\r\n                <element signature=\"e#0#11#0\" expanded=\"true\" />\r\n              </folding>\r\n            </state>\r\n          </provider>\r\n        </entry>\r\n      </file>\r\n    </leaf>\r\n  </component>\r\n  <component name=\"FileTemplateManagerImpl\">\r\n    <option name=\"RECENT_TEMPLATES\">\r\n      <list>\r\n        <option value=\"Python Script\" />\r\n      </list>\r\n    </option>\r\n  </component>\r\n  <component name=\"FindInProjectRecents\">\r\n    <findStrings>\r\n      <find>for</find>\r\n      <find>self.</find>\r\n      <find>self,</find>\r\n      <find>dim_n</find>\r\n      <find>B_array</find>\r\n      <find>dim_T</find>\r\n      <find>E_array</find>\r\n      <find>a_array</find>\r\n      <find>&quot;dim_t&quot;</find>\r\n      <find>&quot;dim_m&quot;</find>\r\n      <find>&quot;b_array&quot;</find>\r\n      <find>&quot;e_array&quot;</find>\r\n      <find>&quot;dim_n&quot;</find>\r\n      <find>&quot;a_array&quot;</find>\r\n      <find>&quot;log_signatures_data&quot;</find>\r\n      <find>&quot;log_initial_pi&quot;</find>\r\n      <find>Minutes</find>\r\n      <find>propagate</find>\r\n    </findStrings>\r\n    <replaceStrings>\r\n      <replace>b_array</replace>\r\n      <replace>dim_t</replace>\r\n      <replace>e_array</replace>\r\n      <replace>a_array</replace>\r\n      <replace>DIM_T_KEY</replace>\r\n      <replace>DIM_M_KEY</replace>\r\n      <replace>B_ARRAY_KEY</replace>\r\n      <replace>E_ARRAY_KEY</replace>\r\n      <replace>DIM_N_KEY</replace>\r\n      <replace>A_ARRAY_KEY</replace>\r\n      <replace>LOG_SIGNATURES_DATA_KEY</replace>\r\n      <replace>LOG_INITIAL_PI_KEY</replace>\r\n    </replaceStrings>\r\n  </component>\r\n  <component name=\"Git.Settings\">\r\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\r\n    <option name=\"RECENT_BRANCH_BY_REPOSITORY\">\r\n      <map>\r\n        <entry key=\"$PROJECT_DIR$\" value=\"master\" />\r\n      </map>\r\n    </option>\r\n  </component>\r\n  <component name=\"IdeDocumentHistory\">\r\n    <option name=\"CHANGED_PATHS\">\r\n      <list>\r\n        <option value=\"$PROJECT_DIR$/MMM.py\" />\r\n        <option value=\"$PROJECT_DIR$/CROSS_VALIDATION.py\" />\r\n        <option value=\"$PROJECT_DIR$/utils.py\" />\r\n        <option value=\"$PROJECT_DIR$/Utils.py\" />\r\n        <option value=\"$PROJECT_DIR$/EM-MMM.py\" />\r\n      </list>\r\n    </option>\r\n  </component>\r\n  <component name=\"ProjectFrameBounds\" extendedState=\"6\">\r\n    <option name=\"x\" value=\"27\" />\r\n    <option name=\"y\" value=\"147\" />\r\n    <option name=\"width\" value=\"1940\" />\r\n    <option name=\"height\" value=\"1044\" />\r\n  </component>\r\n  <component name=\"ProjectView\">\r\n    <navigator proportions=\"\" version=\"1\">\r\n      <foldersAlwaysOnTop value=\"true\" />\r\n    </navigator>\r\n    <panes>\r\n      <pane id=\"Scope\" />\r\n      <pane id=\"ProjectPane\">\r\n        <subPane>\r\n          <expand>\r\n            <path>\r\n              <item name=\"Sadna2\" type=\"b2602c69:ProjectViewProjectNode\" />\r\n              <item name=\"Sadna2\" type=\"462c0819:PsiDirectoryNode\" />\r\n            </path>\r\n          </expand>\r\n          <select />\r\n        </subPane>\r\n      </pane>\r\n    </panes>\r\n  </component>\r\n  <component name=\"PropertiesComponent\">\r\n    <property name=\"SHARE_PROJECT_CONFIGURATION_FILES\" value=\"true\" />\r\n    <property name=\"WebServerToolWindowFactoryState\" value=\"false\" />\r\n    <property name=\"last_opened_file_path\" value=\"$PROJECT_DIR$\" />\r\n    <property name=\"nodejs_interpreter_path.stuck_in_default_project\" value=\"undefined stuck path\" />\r\n    <property name=\"nodejs_npm_path_reset_for_default_project\" value=\"true\" />\r\n    <property name=\"settings.editor.selected.configurable\" value=\"com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable\" />\r\n  </component>\r\n  <component name=\"RecentsManager\">\r\n    <key name=\"MoveFile.RECENT_KEYS\">\r\n      <recent name=\"C:\\Users\\michael\\PycharmProjects\\Sadna2\\data\" />\r\n    </key>\r\n  </component>\r\n  <component name=\"RunDashboard\">\r\n    <option name=\"ruleStates\">\r\n      <list>\r\n        <RuleState>\r\n          <option name=\"name\" value=\"ConfigurationTypeDashboardGroupingRule\" />\r\n        </RuleState>\r\n        <RuleState>\r\n          <option name=\"name\" value=\"StatusDashboardGroupingRule\" />\r\n        </RuleState>\r\n      </list>\r\n    </option>\r\n  </component>\r\n  <component name=\"RunManager\" selected=\"Python.EM-MMM\">\r\n    <configuration name=\"EM-MMM\" type=\"PythonConfigurationType\" factoryName=\"Python\" temporary=\"true\">\r\n      <module name=\"Sadna2\" />\r\n      <option name=\"INTERPRETER_OPTIONS\" value=\"\" />\r\n      <option name=\"PARENT_ENVS\" value=\"true\" />\r\n      <envs>\r\n        <env name=\"PYTHONUNBUFFERED\" value=\"1\" />\r\n      </envs>\r\n      <option name=\"SDK_HOME\" value=\"\" />\r\n      <option name=\"WORKING_DIRECTORY\" value=\"$PROJECT_DIR$\" />\r\n      <option name=\"IS_MODULE_SDK\" value=\"true\" />\r\n      <option name=\"ADD_CONTENT_ROOTS\" value=\"true\" />\r\n      <option name=\"ADD_SOURCE_ROOTS\" value=\"true\" />\r\n      <EXTENSION ID=\"PythonCoverageRunConfigurationExtension\" runner=\"coverage.py\" />\r\n      <option name=\"SCRIPT_NAME\" value=\"$PROJECT_DIR$/EM-MMM.py\" />\r\n      <option name=\"PARAMETERS\" value=\"2\" />\r\n      <option name=\"SHOW_COMMAND_LINE\" value=\"false\" />\r\n      <option name=\"EMULATE_TERMINAL\" value=\"false\" />\r\n      <option name=\"MODULE_MODE\" value=\"false\" />\r\n      <option name=\"REDIRECT_INPUT\" value=\"false\" />\r\n      <option name=\"INPUT_FILE\" value=\"\" />\r\n      <method v=\"2\" />\r\n    </configuration>\r\n    <configuration name=\"utils\" type=\"PythonConfigurationType\" factoryName=\"Python\" temporary=\"true\">\r\n      <module name=\"Sadna2\" />\r\n      <option name=\"INTERPRETER_OPTIONS\" value=\"\" />\r\n      <option name=\"PARENT_ENVS\" value=\"true\" />\r\n      <envs>\r\n        <env name=\"PYTHONUNBUFFERED\" value=\"1\" />\r\n      </envs>\r\n      <option name=\"SDK_HOME\" value=\"\" />\r\n      <option name=\"WORKING_DIRECTORY\" value=\"$PROJECT_DIR$\" />\r\n      <option name=\"IS_MODULE_SDK\" value=\"true\" />\r\n      <option name=\"ADD_CONTENT_ROOTS\" value=\"true\" />\r\n      <option name=\"ADD_SOURCE_ROOTS\" value=\"true\" />\r\n      <EXTENSION ID=\"PythonCoverageRunConfigurationExtension\" runner=\"coverage.py\" />\r\n      <option name=\"SCRIPT_NAME\" value=\"C:\\Users\\michael\\PycharmProjects\\Sadna2\\Utils.py\" />\r\n      <option name=\"PARAMETERS\" value=\"\" />\r\n      <option name=\"SHOW_COMMAND_LINE\" value=\"false\" />\r\n      <option name=\"EMULATE_TERMINAL\" value=\"false\" />\r\n      <option name=\"MODULE_MODE\" value=\"false\" />\r\n      <option name=\"REDIRECT_INPUT\" value=\"false\" />\r\n      <option name=\"INPUT_FILE\" value=\"\" />\r\n      <method v=\"2\" />\r\n    </configuration>\r\n    <list>\r\n      <item itemvalue=\"Python.EM-MMM\" />\r\n      <item itemvalue=\"Python.utils\" />\r\n    </list>\r\n    <recent_temporary>\r\n      <list>\r\n        <item itemvalue=\"Python.EM-MMM\" />\r\n        <item itemvalue=\"Python.utils\" />\r\n        <item itemvalue=\"Python.EM-MMM\" />\r\n        <item itemvalue=\"Python.utils\" />\r\n        <item itemvalue=\"Python.EM-MMM\" />\r\n      </list>\r\n    </recent_temporary>\r\n  </component>\r\n  <component name=\"SvnConfiguration\">\r\n    <configuration />\r\n  </component>\r\n  <component name=\"TaskManager\">\r\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\r\n      <changelist id=\"005d87d3-de09-4e84-b87e-c8613c6d656b\" name=\"Default Changelist\" comment=\"\" />\r\n      <created>1553351422906</created>\r\n      <option name=\"number\" value=\"Default\" />\r\n      <option name=\"presentableId\" value=\"Default\" />\r\n      <updated>1553351422906</updated>\r\n      <workItem from=\"1553351432143\" duration=\"1378000\" />\r\n      <workItem from=\"1553352834219\" duration=\"2669000\" />\r\n      <workItem from=\"1553355683840\" duration=\"17619000\" />\r\n      <workItem from=\"1555759168849\" duration=\"5116000\" />\r\n      <workItem from=\"1555769324204\" duration=\"838000\" />\r\n      <workItem from=\"1555781949335\" duration=\"19000\" />\r\n      <workItem from=\"1556390298073\" duration=\"6859000\" />\r\n      <workItem from=\"1556475885307\" duration=\"1438000\" />\r\n      <workItem from=\"1556478341460\" duration=\"1118000\" />\r\n      <workItem from=\"1556480152469\" duration=\"5246000\" />\r\n      <workItem from=\"1556729810511\" duration=\"5679000\" />\r\n    </task>\r\n    <task id=\"LOCAL-00001\" summary=\"Created new Parse utils\">\r\n      <created>1553354859187</created>\r\n      <option name=\"number\" value=\"00001\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00001\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1553354859187</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00002\" summary=\"new changes\">\r\n      <created>1553358612681</created>\r\n      <option name=\"number\" value=\"00002\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00002\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1553358612681</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00003\" summary=\"- finished parser + validation for parser&#10;- need to add starting strand from itay\">\r\n      <created>1553358729623</created>\r\n      <option name=\"number\" value=\"00003\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00003\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1553358729623</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00004\" summary=\"- optimization for likelihood + e step\">\r\n      <created>1553368435191</created>\r\n      <option name=\"number\" value=\"00004\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00004\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1553368435191</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00005\" summary=\"- changed all arrays to numpy - works fast!\">\r\n      <created>1553373008441</created>\r\n      <option name=\"number\" value=\"00005\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00005\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1553373008441</updated>\r\n    </task>\r\n    <task id=\"LOCAL-00006\" summary=\"- clean all comments\">\r\n      <created>1553373951356</created>\r\n      <option name=\"number\" value=\"00006\" />\r\n      <option name=\"presentableId\" value=\"LOCAL-00006\" />\r\n      <option name=\"project\" value=\"LOCAL\" />\r\n      <updated>1553373951356</updated>\r\n    </task>\r\n    <option name=\"localTasksCounter\" value=\"7\" />\r\n    <servers />\r\n  </component>\r\n  <component name=\"TimeTrackingManager\">\r\n    <option name=\"totallyTimeSpent\" value=\"48244000\" />\r\n  </component>\r\n  <component name=\"ToolWindowManager\">\r\n    <frame x=\"-8\" y=\"-8\" width=\"1936\" height=\"1056\" extended-state=\"6\" />\r\n    <layout>\r\n      <window_info content_ui=\"combo\" id=\"Project\" order=\"0\" weight=\"0.2217484\" />\r\n      <window_info id=\"Structure\" order=\"1\" side_tool=\"true\" weight=\"0.25\" />\r\n      <window_info id=\"Favorites\" order=\"2\" side_tool=\"true\" />\r\n      <window_info anchor=\"bottom\" id=\"Message\" order=\"0\" />\r\n      <window_info anchor=\"bottom\" id=\"Find\" order=\"1\" weight=\"0.5911111\" />\r\n      <window_info anchor=\"bottom\" id=\"Run\" order=\"2\" sideWeight=\"0.49946696\" weight=\"0.2112676\" />\r\n      <window_info anchor=\"bottom\" id=\"Debug\" order=\"3\" weight=\"0.32502708\" />\r\n      <window_info anchor=\"bottom\" id=\"Cvs\" order=\"4\" weight=\"0.25\" />\r\n      <window_info anchor=\"bottom\" id=\"Inspection\" order=\"5\" weight=\"0.4\" />\r\n      <window_info anchor=\"bottom\" id=\"TODO\" order=\"6\" />\r\n      <window_info anchor=\"bottom\" id=\"Docker\" order=\"7\" show_stripe_button=\"false\" />\r\n      <window_info active=\"true\" anchor=\"bottom\" id=\"Version Control\" order=\"8\" visible=\"true\" weight=\"0.47555557\" />\r\n      <window_info anchor=\"bottom\" id=\"Database Changes\" order=\"9\" />\r\n      <window_info anchor=\"bottom\" id=\"Event Log\" order=\"10\" sideWeight=\"0.50053304\" side_tool=\"true\" weight=\"0.6666667\" />\r\n      <window_info anchor=\"bottom\" id=\"Terminal\" order=\"11\" weight=\"0.41061756\" />\r\n      <window_info anchor=\"bottom\" id=\"Python Console\" order=\"12\" weight=\"0.26555556\" />\r\n      <window_info anchor=\"bottom\" id=\"Messages\" order=\"13\" />\r\n      <window_info anchor=\"right\" id=\"Commander\" internal_type=\"SLIDING\" order=\"0\" type=\"SLIDING\" weight=\"0.4\" />\r\n      <window_info anchor=\"right\" id=\"Ant Build\" order=\"1\" weight=\"0.25\" />\r\n      <window_info anchor=\"right\" content_ui=\"combo\" id=\"Hierarchy\" order=\"2\" weight=\"0.25\" />\r\n      <window_info anchor=\"right\" id=\"SciView\" order=\"3\" />\r\n      <window_info anchor=\"right\" id=\"Database\" order=\"4\" />\r\n      <window_info anchor=\"right\" id=\"Json Parser\" order=\"5\" />\r\n      <window_info anchor=\"right\" id=\"JSON Viewer\" order=\"6\" weight=\"0.3251599\" />\r\n    </layout>\r\n  </component>\r\n  <component name=\"TypeScriptGeneratedFilesManager\">\r\n    <option name=\"version\" value=\"1\" />\r\n  </component>\r\n  <component name=\"VcsManagerConfiguration\">\r\n    <MESSAGE value=\"Created new Parse utils\" />\r\n    <MESSAGE value=\"new changes\" />\r\n    <MESSAGE value=\"- finished parser + validation for parser&#10;- need to add starting strand from itay\" />\r\n    <MESSAGE value=\"- optimization for likelihood + e step\" />\r\n    <MESSAGE value=\"- changed all arrays to numpy - works fast!\" />\r\n    <MESSAGE value=\"- clean all comments\" />\r\n    <option name=\"LAST_COMMIT_MESSAGE\" value=\"- clean all comments\" />\r\n    <option name=\"PRESELECT_EXISTING_CHANGELIST\" value=\"true\" />\r\n  </component>\r\n  <component name=\"XDebuggerManager\">\r\n    <breakpoint-manager>\r\n      <breakpoints>\r\n        <line-breakpoint enabled=\"true\" suspend=\"THREAD\" type=\"python-line\">\r\n          <url>file://$PROJECT_DIR$/EM-MMM.py</url>\r\n          <line>109</line>\r\n          <option name=\"timeStamp\" value=\"4\" />\r\n        </line-breakpoint>\r\n      </breakpoints>\r\n    </breakpoint-manager>\r\n  </component>\r\n  <component name=\"com.intellij.coverage.CoverageDataManagerImpl\">\r\n    <SUITE FILE_PATH=\"coverage/Sadna2$EM_MMM.coverage\" NAME=\"EM-MMM Coverage Results\" MODIFIED=\"1556730071862\" SOURCE_PROVIDER=\"com.intellij.coverage.DefaultCoverageFileProvider\" RUNNER=\"coverage.py\" COVERAGE_BY_TEST_ENABLED=\"true\" COVERAGE_TRACING_ENABLED=\"false\" WORKING_DIRECTORY=\"$PROJECT_DIR$\" />\r\n  </component>\r\n  <component name=\"debuggerHistoryManager\">\r\n    <expressions id=\"evaluateExpression\">\r\n      <expression>\r\n        <expression-string>input_x_data[int(t)]</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>int(t)</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>b[input_x[i] - 1]</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>b[input_x[0] - 1]</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>input_x[0] - 1</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>input_x[i] - 1</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>input_x[i]</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>log_signatures_data</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n      <expression>\r\n        <expression-string>log_initial_pi</expression-string>\r\n        <language-id>Python</language-id>\r\n        <evaluation-mode>EXPRESSION</evaluation-mode>\r\n      </expression>\r\n    </expressions>\r\n  </component>\r\n  <component name=\"editorHistoryManager\">\r\n    <entry file=\"file://$PROJECT_DIR$/utils\" />\r\n    <entry file=\"file://$USER_HOME$/.PyCharm2018.3/system/python_stubs/-229213283/builtins.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"188\">\r\n          <caret line=\"2814\" column=\"8\" selection-start-line=\"2814\" selection-start-column=\"8\" selection-end-line=\"2814\" selection-end-column=\"8\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/MMM.py\" />\r\n    <entry file=\"file://$PROJECT_DIR$/CROSS_VALIDATION.py\" />\r\n    <entry file=\"file://$USER_HOME$/.PyCharm2018.3/system/python_stubs/-229213283/numpy/core/umath.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"237\">\r\n          <caret line=\"2962\" column=\"4\" selection-start-line=\"2962\" selection-start-column=\"4\" selection-end-line=\"2962\" selection-end-column=\"4\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/../ex4_mich/venv/Lib/site-packages/numpy/core/fromnumeric.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"299\">\r\n          <caret line=\"82\" selection-start-line=\"82\" selection-end-line=\"82\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/data/ICGC-BRCA.json\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"220\">\r\n          <caret column=\"4746\" selection-start-column=\"4746\" selection-end-column=\"4746\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/README.md\">\r\n      <provider selected=\"true\" editor-type-id=\"split-provider[text-editor;markdown-preview-editor]\">\r\n        <state split_layout=\"SPLIT\">\r\n          <first_editor />\r\n          <second_editor />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/data/strand_info.json\">\r\n      <provider selected=\"true\" editor-type-id=\"LargeFileEditor\">\r\n        <state relative-caret-position=\"308\">\r\n          <caret column=\"1949\" lean-forward=\"true\" selection-start-column=\"1949\" selection-end-column=\"1949\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/.idea/workspace.xml\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"-2464\" />\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/.idea/shelf/GOODGOODGOOD.xml\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\" />\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/data/BRCA-strand-info.json\">\r\n      <provider selected=\"true\" editor-type-id=\"LargeFileEditor\">\r\n        <state relative-caret-position=\"264\">\r\n          <caret column=\"1770\" selection-start-column=\"1770\" selection-end-column=\"1770\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/get-pip.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\" />\r\n    </entry>\r\n    <entry file=\"file://$USER_HOME$/AppData/Local/Programs/Python/Python37/Lib/logging/__init__.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"342\">\r\n          <caret line=\"1342\" column=\"64\" lean-forward=\"true\" selection-start-line=\"1342\" selection-start-column=\"64\" selection-end-line=\"1342\" selection-end-column=\"64\" />\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/Utils.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"286\">\r\n          <caret line=\"13\" column=\"17\" selection-start-line=\"13\" selection-start-column=\"17\" selection-end-line=\"13\" selection-end-column=\"17\" />\r\n          <folding>\r\n            <element signature=\"e#0#11#0\" expanded=\"true\" />\r\n          </folding>\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n    <entry file=\"file://$PROJECT_DIR$/EM-MMM.py\">\r\n      <provider selected=\"true\" editor-type-id=\"text-editor\">\r\n        <state relative-caret-position=\"49\">\r\n          <caret line=\"148\" lean-forward=\"true\" selection-start-line=\"148\" selection-end-line=\"148\" />\r\n          <folding>\r\n            <element signature=\"e#0#11#0\" expanded=\"true\" />\r\n          </folding>\r\n        </state>\r\n      </provider>\r\n    </entry>\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- .idea/workspace.xml	(revision ba2de90f6951334af313eba25297508022aaa628)
++++ .idea/workspace.xml	(date 1556744145879)
+@@ -2,11 +2,11 @@
+ <project version="4">
+   <component name="ChangeListManager">
+     <list default="true" id="005d87d3-de09-4e84-b87e-c8613c6d656b" name="Default Changelist" comment="">
+-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/Sadna2.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Sadna2.iml" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
++      <change afterPath="$PROJECT_DIR$/emMmm.py" afterDir="false" />
++      <change afterPath="$PROJECT_DIR$/test_emMmm.py" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+-      <change beforePath="$PROJECT_DIR$/EM-MMM.py" beforeDir="false" afterPath="$PROJECT_DIR$/EM-MMM.py" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/EM-MMM.pdf" beforeDir="false" afterPath="$PROJECT_DIR$/data/EM-MMM.pdf" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/EM-MMM.py" beforeDir="false" />
+     </list>
+     <ignored path="C:\Users\michael\PycharmProjects\Sadna2\.idea\shelf/" />
+     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
+@@ -22,12 +22,24 @@
+   <component name="FileEditorManager">
+     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
+       <file pinned="false" current-in-tab="true">
+-        <entry file="file://$PROJECT_DIR$/EM-MMM.py">
++        <entry file="file://$PROJECT_DIR$/emMmm.py">
+           <provider selected="true" editor-type-id="text-editor">
+-            <state relative-caret-position="49">
+-              <caret line="148" lean-forward="true" selection-start-line="148" selection-end-line="148" />
++            <state relative-caret-position="5742">
++              <caret line="277" column="12" lean-forward="true" selection-start-line="277" selection-start-column="12" selection-end-line="277" selection-end-column="12" />
+               <folding>
+                 <element signature="e#0#11#0" expanded="true" />
++              </folding>
++            </state>
++          </provider>
++        </entry>
++      </file>
++      <file pinned="false" current-in-tab="false">
++        <entry file="file://$PROJECT_DIR$/test_emMmm.py">
++          <provider selected="true" editor-type-id="text-editor">
++            <state relative-caret-position="308">
++              <caret line="14" column="19" selection-start-line="14" selection-start-column="19" selection-end-line="14" selection-end-column="19" />
++              <folding>
++                <element signature="e#0#29#0" expanded="true" />
+               </folding>
+             </state>
+           </provider>
+@@ -74,6 +86,10 @@
+       <find>&quot;log_initial_pi&quot;</find>
+       <find>Minutes</find>
+       <find>propagate</find>
++      <find>LOG_SIGNATURES_DATA_KEY</find>
++      <find>DIM_T_KEY</find>
++      <find>LOG_INITIAL_PI_KEY</find>
++      <find>A_ARRAY_KEY</find>
+     </findStrings>
+     <replaceStrings>
+       <replace>b_array</replace>
+@@ -88,6 +104,10 @@
+       <replace>A_ARRAY_KEY</replace>
+       <replace>LOG_SIGNATURES_DATA_KEY</replace>
+       <replace>LOG_INITIAL_PI_KEY</replace>
++      <replace>self.LOG_SIGNATURES_DATA_KEY</replace>
++      <replace>self.DIM_T_KEY</replace>
++      <replace>self.LOG_INITIAL_PI_KEY</replace>
++      <replace>self.A_ARRAY_KEY</replace>
+     </replaceStrings>
+   </component>
+   <component name="Git.Settings">
+@@ -105,7 +125,10 @@
+         <option value="$PROJECT_DIR$/CROSS_VALIDATION.py" />
+         <option value="$PROJECT_DIR$/utils.py" />
+         <option value="$PROJECT_DIR$/Utils.py" />
++        <option value="$PROJECT_DIR$/test_e_step.py" />
+         <option value="$PROJECT_DIR$/EM-MMM.py" />
++        <option value="$PROJECT_DIR$/test_emMmm.py" />
++        <option value="$PROJECT_DIR$/emMmm.py" />
+       </list>
+     </option>
+   </component>
+@@ -128,6 +151,11 @@
+               <item name="Sadna2" type="b2602c69:ProjectViewProjectNode" />
+               <item name="Sadna2" type="462c0819:PsiDirectoryNode" />
+             </path>
++            <path>
++              <item name="Sadna2" type="b2602c69:ProjectViewProjectNode" />
++              <item name="Sadna2" type="462c0819:PsiDirectoryNode" />
++              <item name="data" type="462c0819:PsiDirectoryNode" />
++            </path>
+           </expand>
+           <select />
+         </subPane>
+@@ -159,7 +187,7 @@
+       </list>
+     </option>
+   </component>
+-  <component name="RunManager" selected="Python.EM-MMM">
++  <component name="RunManager" selected="Python tests.Unittests for test_emMmm.TestEmMmm.test_e_step">
+     <configuration name="EM-MMM" type="PythonConfigurationType" factoryName="Python" temporary="true">
+       <module name="Sadna2" />
+       <option name="INTERPRETER_OPTIONS" value="" />
+@@ -173,8 +201,8 @@
+       <option name="ADD_CONTENT_ROOTS" value="true" />
+       <option name="ADD_SOURCE_ROOTS" value="true" />
+       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+-      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/EM-MMM.py" />
+-      <option name="PARAMETERS" value="2" />
++      <option name="SCRIPT_NAME" value="C:\Users\michael\PycharmProjects\Sadna2\emMmm.py" />
++      <option name="PARAMETERS" value="1" />
+       <option name="SHOW_COMMAND_LINE" value="false" />
+       <option name="EMULATE_TERMINAL" value="false" />
+       <option name="MODULE_MODE" value="false" />
+@@ -204,17 +232,66 @@
+       <option name="INPUT_FILE" value="" />
+       <method v="2" />
+     </configuration>
++    <configuration name="Unittests for test_e_step.TestE_step" type="tests" factoryName="Unittests" temporary="true" nameIsGenerated="true">
++      <module name="Sadna2" />
++      <option name="INTERPRETER_OPTIONS" value="" />
++      <option name="PARENT_ENVS" value="true" />
++      <option name="SDK_HOME" value="" />
++      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
++      <option name="IS_MODULE_SDK" value="true" />
++      <option name="ADD_CONTENT_ROOTS" value="true" />
++      <option name="ADD_SOURCE_ROOTS" value="true" />
++      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
++      <option name="_new_additionalArguments" value="&quot;&quot;" />
++      <option name="_new_target" value="&quot;test_e_step.TestE_step&quot;" />
++      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
++      <method v="2" />
++    </configuration>
++    <configuration name="Unittests for test_emMmm.TestEmMmm" type="tests" factoryName="Unittests" temporary="true" nameIsGenerated="true">
++      <module name="Sadna2" />
++      <option name="INTERPRETER_OPTIONS" value="" />
++      <option name="PARENT_ENVS" value="true" />
++      <option name="SDK_HOME" value="" />
++      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
++      <option name="IS_MODULE_SDK" value="true" />
++      <option name="ADD_CONTENT_ROOTS" value="true" />
++      <option name="ADD_SOURCE_ROOTS" value="true" />
++      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
++      <option name="_new_additionalArguments" value="&quot;&quot;" />
++      <option name="_new_target" value="&quot;test_emMmm.TestEmMmm&quot;" />
++      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
++      <method v="2" />
++    </configuration>
++    <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" type="tests" factoryName="Unittests" temporary="true" nameIsGenerated="true">
++      <module name="Sadna2" />
++      <option name="INTERPRETER_OPTIONS" value="" />
++      <option name="PARENT_ENVS" value="true" />
++      <option name="SDK_HOME" value="" />
++      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
++      <option name="IS_MODULE_SDK" value="true" />
++      <option name="ADD_CONTENT_ROOTS" value="true" />
++      <option name="ADD_SOURCE_ROOTS" value="true" />
++      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
++      <option name="_new_pattern" value="&quot;&quot;" />
++      <option name="_new_additionalArguments" value="&quot;1&quot;" />
++      <option name="_new_target" value="&quot;test_emMmm.TestEmMmm.test_e_step&quot;" />
++      <option name="_new_targetType" value="&quot;PYTHON&quot;" />
++      <method v="2" />
++    </configuration>
+     <list>
+       <item itemvalue="Python.EM-MMM" />
+       <item itemvalue="Python.utils" />
++      <item itemvalue="Python tests.Unittests for test_e_step.TestE_step" />
++      <item itemvalue="Python tests.Unittests for test_emMmm.TestEmMmm.test_e_step" />
++      <item itemvalue="Python tests.Unittests for test_emMmm.TestEmMmm" />
+     </list>
+     <recent_temporary>
+       <list>
+-        <item itemvalue="Python.EM-MMM" />
+-        <item itemvalue="Python.utils" />
++        <item itemvalue="Python tests.Unittests for test_emMmm.TestEmMmm.test_e_step" />
++        <item itemvalue="Python tests.Unittests for test_emMmm.TestEmMmm" />
+         <item itemvalue="Python.EM-MMM" />
++        <item itemvalue="Python tests.Unittests for test_e_step.TestE_step" />
+         <item itemvalue="Python.utils" />
+-        <item itemvalue="Python.EM-MMM" />
+       </list>
+     </recent_temporary>
+   </component>
+@@ -238,7 +315,7 @@
+       <workItem from="1556475885307" duration="1438000" />
+       <workItem from="1556478341460" duration="1118000" />
+       <workItem from="1556480152469" duration="5246000" />
+-      <workItem from="1556729810511" duration="5679000" />
++      <workItem from="1556729810511" duration="14016000" />
+     </task>
+     <task id="LOCAL-00001" summary="Created new Parse utils">
+       <created>1553354859187</created>
+@@ -284,37 +361,69 @@
+     </task>
+     <option name="localTasksCounter" value="7" />
+     <servers />
++  </component>
++  <component name="TestHistory">
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 48m 08s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 48m 55s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 50m 08s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 50m 56s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 51m 17s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 52m 26s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 53m 19s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 53m 30s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 54m 07s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
++    <history-entry file="Unittests_for_test_emMmm_TestEmMmm_test_e_step - 2019.05.01 at 23h 54m 20s.xml">
++      <configuration name="Unittests for test_emMmm.TestEmMmm.test_e_step" configurationId="tests" />
++    </history-entry>
+   </component>
+   <component name="TimeTrackingManager">
+-    <option name="totallyTimeSpent" value="48244000" />
++    <option name="totallyTimeSpent" value="56581000" />
+   </component>
+   <component name="ToolWindowManager">
+     <frame x="-8" y="-8" width="1936" height="1056" extended-state="6" />
+     <layout>
+-      <window_info content_ui="combo" id="Project" order="0" weight="0.2217484" />
++      <window_info content_ui="combo" id="Project" order="0" weight="0.17803837" />
+       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
+       <window_info id="Favorites" order="2" side_tool="true" />
+       <window_info anchor="bottom" id="Message" order="0" />
+       <window_info anchor="bottom" id="Find" order="1" weight="0.5911111" />
+-      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.49946696" weight="0.2112676" />
+-      <window_info anchor="bottom" id="Debug" order="3" weight="0.32502708" />
++      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.49946696" weight="0.4311111" />
++      <window_info anchor="bottom" id="Debug" order="3" weight="0.35555556" />
+       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
+       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
+       <window_info anchor="bottom" id="TODO" order="6" />
+       <window_info anchor="bottom" id="Docker" order="7" show_stripe_button="false" />
+-      <window_info active="true" anchor="bottom" id="Version Control" order="8" visible="true" weight="0.47555557" />
++      <window_info active="true" anchor="bottom" id="Version Control" order="8" visible="true" weight="0.40555555" />
+       <window_info anchor="bottom" id="Database Changes" order="9" />
+       <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.50053304" side_tool="true" weight="0.6666667" />
+       <window_info anchor="bottom" id="Terminal" order="11" weight="0.41061756" />
+-      <window_info anchor="bottom" id="Python Console" order="12" weight="0.26555556" />
++      <window_info anchor="bottom" id="Python Console" order="12" weight="0.27888888" />
+       <window_info anchor="bottom" id="Messages" order="13" />
+       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
+       <window_info anchor="right" id="Ant Build" order="1" weight="0.25" />
+       <window_info anchor="right" content_ui="combo" id="Hierarchy" order="2" weight="0.25" />
+-      <window_info anchor="right" id="SciView" order="3" />
+-      <window_info anchor="right" id="Database" order="4" />
+-      <window_info anchor="right" id="Json Parser" order="5" />
+-      <window_info anchor="right" id="JSON Viewer" order="6" weight="0.3251599" />
++      <window_info anchor="right" id="Database" order="3" />
++      <window_info anchor="right" id="Json Parser" order="4" />
++      <window_info anchor="right" id="JSON Viewer" order="5" weight="0.3251599" />
++      <window_info anchor="right" id="SciView" order="6" weight="0.32995737" />
+     </layout>
+   </component>
+   <component name="TypeScriptGeneratedFilesManager">
+@@ -334,60 +443,73 @@
+     <breakpoint-manager>
+       <breakpoints>
+         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+-          <url>file://$PROJECT_DIR$/EM-MMM.py</url>
+-          <line>109</line>
+-          <option name="timeStamp" value="4" />
++          <url>file://$PROJECT_DIR$/emMmm.py</url>
++          <line>227</line>
++          <option name="timeStamp" value="8" />
++        </line-breakpoint>
++        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
++          <url>file://$PROJECT_DIR$/test_emMmm.py</url>
++          <line>14</line>
++          <option name="timeStamp" value="10" />
++        </line-breakpoint>
++        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
++          <url>file://$PROJECT_DIR$/emMmm.py</url>
++          <line>91</line>
++          <option name="timeStamp" value="11" />
+         </line-breakpoint>
+       </breakpoints>
+     </breakpoint-manager>
+   </component>
+   <component name="com.intellij.coverage.CoverageDataManagerImpl">
+-    <SUITE FILE_PATH="coverage/Sadna2$EM_MMM.coverage" NAME="EM-MMM Coverage Results" MODIFIED="1556730071862" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
++    <SUITE FILE_PATH="coverage/Sadna2$Unittests_for_test_emMmm_TestEmMmm_test_e_step.coverage" NAME="Unittests for test_emMmm.TestEmMmm.test_e_step Coverage Results" MODIFIED="1556744060070" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
++    <SUITE FILE_PATH="coverage/Sadna2$EM_MMM.coverage" NAME="EM-MMM Coverage Results" MODIFIED="1556741775209" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
++    <SUITE FILE_PATH="coverage/Sadna2$Unittests_for_test_e_step_TestE_step.coverage" NAME="Unittests for test_e_step.TestE_step Coverage Results" MODIFIED="1556741198282" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
++    <SUITE FILE_PATH="coverage/Sadna2$Unittests_for_test_emMmm_TestEmMmm.coverage" NAME="Unittests for test_emMmm.TestEmMmm Coverage Results" MODIFIED="1556742861539" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+   </component>
+   <component name="debuggerHistoryManager">
+     <expressions id="evaluateExpression">
+       <expression>
+-        <expression-string>input_x_data[int(t)]</expression-string>
++        <expression-string>mmm_params.get(self.e.E_ARRAY_KEY)</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>int(t)</expression-string>
++        <expression-string>mmm_params</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>b[input_x[i] - 1]</expression-string>
++        <expression-string>mmm_parameters[self.E_ARRAY_KEY][i][j]</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>b[input_x[0] - 1]</expression-string>
++        <expression-string>temp_log_sum_array</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>input_x[0] - 1</expression-string>
++        <expression-string>mmm_parameters[self.LOG_INITIAL_PI_KEY] + mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][:, j]`</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>input_x[i] - 1</expression-string>
++        <expression-string>mmm_parameters[self.LOG_INITIAL_PI_KEY] + mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][:, j]</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>input_x[i]</expression-string>
++        <expression-string>mmm_parameters[self.LOG_SIGNATURES_DATA_KEY][:, j]</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>log_signatures_data</expression-string>
++        <expression-string>mmm_parameters[self.LOG_INITIAL_PI_KEY]</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+       <expression>
+-        <expression-string>log_initial_pi</expression-string>
++        <expression-string>mmm_params.get(self.e.LOG_SIGNATURES_DATA_KEY)</expression-string>
+         <language-id>Python</language-id>
+         <evaluation-mode>EXPRESSION</evaluation-mode>
+       </expression>
+@@ -475,10 +597,34 @@
+         </state>
+       </provider>
+     </entry>
+-    <entry file="file://$PROJECT_DIR$/EM-MMM.py">
++    <entry file="file://$PROJECT_DIR$/test_e_step.py">
+       <provider selected="true" editor-type-id="text-editor">
+-        <state relative-caret-position="49">
+-          <caret line="148" lean-forward="true" selection-start-line="148" selection-end-line="148" />
++        <state relative-caret-position="22">
++          <caret line="1" lean-forward="true" selection-start-line="1" selection-end-line="1" />
++        </state>
++      </provider>
++    </entry>
++    <entry file="file://$USER_HOME$/AppData/Local/Programs/Python/Python37/Lib/unittest/case.py">
++      <provider selected="true" editor-type-id="text-editor">
++        <state relative-caret-position="22">
++          <caret line="614" selection-start-line="614" selection-end-line="614" />
++        </state>
++      </provider>
++    </entry>
++    <entry file="file://$PROJECT_DIR$/test_emMmm.py">
++      <provider selected="true" editor-type-id="text-editor">
++        <state relative-caret-position="308">
++          <caret line="14" column="19" selection-start-line="14" selection-start-column="19" selection-end-line="14" selection-end-column="19" />
++          <folding>
++            <element signature="e#0#29#0" expanded="true" />
++          </folding>
++        </state>
++      </provider>
++    </entry>
++    <entry file="file://$PROJECT_DIR$/emMmm.py">
++      <provider selected="true" editor-type-id="text-editor">
++        <state relative-caret-position="5742">
++          <caret line="277" column="12" lean-forward="true" selection-start-line="277" selection-start-column="12" selection-end-line="277" selection-end-column="12" />
+           <folding>
+             <element signature="e#0#11#0" expanded="true" />
+           </folding>
