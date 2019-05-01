@@ -17,3 +17,8 @@ __pycache__/Utils.cpython-37.pyc
 *.iml
 *.xml
 .idea/workspace.xml
+*.xml
+Results/algorithm_1-test_results.log
+.idea/workspace.xml
+.idea/Sadna2.iml
+.idea/misc.xml

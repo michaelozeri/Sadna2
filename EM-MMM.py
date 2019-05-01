@@ -42,40 +42,48 @@ def convert_to_log_scale_eij(signatures_data):
     return np.array(log(signatures_data))
 
 
-def initialize_mmm_parameters(signatures_data, initial_pi, input_x):
-    # defining the mmm
-    log_signatures_data = convert_to_log_scale_eij(signatures_data)
-    log_initial_pi = convert_to_log_scale(initial_pi)
-
-    # constants - don't change
-    dim_n = len(log_signatures_data)
-    dim_m = len(log_signatures_data[0])
+def initialize_chromosome_mmm_parameters(input_x, mmm_person_params):
+    dim_m = mmm_person_params[DIM_M_KEY]
+    dim_n = mmm_person_params[DIM_N_KEY]
     dim_t = len(input_x)
     b_array = create_b_array(input_x, dim_m)
-
     # are calculated each iteration
     e_array = np.zeros((dim_n, dim_m))
     a_array = np.zeros(dim_n)
-    return {LOG_SIGNATURES_DATA_KEY: log_signatures_data, LOG_INITIAL_PI_KEY: log_initial_pi, DIM_N_KEY: dim_n,
-            DIM_M_KEY: dim_m, DIM_T_KEY: dim_t, B_ARRAY_KEY: b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array}
+    log_signatures_data_copy = mmm_person_params[LOG_SIGNATURES_DATA_KEY].copy()
+    log_initial_pi_copy = mmm_person_params[LOG_INITIAL_PI_KEY].copy()
+    return {DIM_T_KEY: dim_t, B_ARRAY_KEY: b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array,
+            LOG_SIGNATURES_DATA_KEY: log_signatures_data_copy, LOG_INITIAL_PI_KEY: log_initial_pi_copy,
+            DIM_N_KEY: dim_n, DIM_M_KEY: dim_m}
+
+
+def assign_person_params(initial_pi, signatures_data):
+    # defining the mmm
+    log_signatures_data = convert_to_log_scale_eij(signatures_data)
+    log_initial_pi = convert_to_log_scale(initial_pi)
+    # constants - don't change
+    dim_n = len(log_signatures_data)
+    dim_m = len(log_signatures_data[0])
+    return {DIM_M_KEY: dim_m, DIM_N_KEY: dim_n,
+            LOG_INITIAL_PI_KEY: log_initial_pi, LOG_SIGNATURES_DATA_KEY: log_signatures_data}
 
 
 # on input data (sequence or sequences) do EM iterations until the model improvement is less
 # than  threshold , or until max_iterations iterations.
-def fit(input_x_data, mmm_parameters):
+def fit(input_x_data, total_mmm_parameters):
     current_number_of_iterations = 1
-    old_score = likelihood(input_x_data, mmm_parameters)
-    e_step(mmm_parameters)
-    m_step(mmm_parameters)
-    new_score = likelihood(input_x_data, mmm_parameters)
+    old_score = likelihood(input_x_data, total_mmm_parameters)
+    e_step(total_mmm_parameters)
+    m_step(total_mmm_parameters)
+    new_score = likelihood(input_x_data, total_mmm_parameters)
     while (abs(new_score - old_score) > threshold) and (current_number_of_iterations < max_iteration):
         # print("delta is: " + abs(new_score - old_score).__str__())
         old_score = new_score
-        e_step(mmm_parameters)
+        e_step(total_mmm_parameters)
         # print(self.log_initial_pi)
-        m_step(mmm_parameters)
+        m_step(total_mmm_parameters)
         # print(self.log_initial_pi)
-        new_score = likelihood(input_x_data, mmm_parameters)
+        new_score = likelihood(input_x_data, total_mmm_parameters)
         current_number_of_iterations += 1
         # print("number of iterations is: " + number_of_iterations.__str__())
     return
@@ -129,27 +137,31 @@ def log_to_regular(param):
 ############################################## CROSS VALIDATION FUNCTIONS ##############################################
 
 
-def compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi, signatures_data):
+def compute_likelihood_for_chromosome(ignored_chromosome, person, mmm_person_params, input_x_total):
+    mmm_chromosome_params = initialize_chromosome_mmm_parameters(input_x_total, mmm_person_params)
+    fit(input_x_total, mmm_chromosome_params)
+    ignored_sequence = person[ignored_chromosome]["Sequence"]
+    mmm_chromosome_params[DIM_T_KEY] = len(ignored_sequence)
+    mmm_chromosome_params[B_ARRAY_KEY] = create_b_array(ignored_sequence,
+                                                        mmm_chromosome_params[DIM_M_KEY])
+    return likelihood(ignored_sequence, mmm_chromosome_params)
+
+
+def person_cross_validation(person, mmm_person_params):
+    total_sum_person = 0
     input_x_total = np.array([])
     # train
     for chromosome in person:
-        if chromosome == ignored_chromosome:
-            continue
-        else:
-            input_x_total = np.append(input_x_total, np.array(person[chromosome]["Sequence"]))
-    mmm_parameters = initialize_mmm_parameters(signatures_data, initial_pi, input_x_total)
-    fit(input_x_total, mmm_parameters)
-    ignored_sequence = person[ignored_chromosome]["Sequence"]
-    mmm_parameters[DIM_T_KEY] = len(ignored_sequence)
-    mmm_parameters[B_ARRAY_KEY] = create_b_array(ignored_sequence, mmm_parameters[DIM_M_KEY])
-    return likelihood(ignored_sequence, mmm_parameters)
-
-
-def person_cross_validation(person, initial_pi, signatures_data):
-    total_sum_person = 0
+        chromosome_sequence = np.array(person[chromosome]["Sequence"])
+        input_x_total = np.append(input_x_total, chromosome_sequence)
+    temp_location_sum = 0
     for ignored_chromosome in person:
-        likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(ignored_chromosome, person, initial_pi,
-                                                                              signatures_data)
+        start_remove_index = temp_location_sum
+        end_remove_index = temp_location_sum + len(person[ignored_chromosome]["Sequence"])
+        input_x_after_remove = np.delete(input_x_total, np.s_[start_remove_index:end_remove_index])
+        likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(ignored_chromosome, person,
+                                                                              mmm_person_params, input_x_after_remove)
+        temp_location_sum = end_remove_index
         logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
             likelihood_for_ignored_chromosome))
         logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in regular space is :" + str(
@@ -161,9 +173,10 @@ def person_cross_validation(person, initial_pi, signatures_data):
 def compute_cross_validation_for_total_training_data(dict_data, initial_pi, signatures_data):
     total_sum = 0
     person_number = 1
+    mmm_person_params = assign_person_params(initial_pi, signatures_data)
     for person in dict_data:
         start = time.time()
-        person_cross_validation_result = person_cross_validation(dict_data[person], initial_pi, signatures_data)
+        person_cross_validation_result = person_cross_validation(dict_data[person], mmm_person_params)
         logger.debug("person_cross_validation_result for person: " + str(person_number) + " in log space is: " + str(
             person_cross_validation_result))
         logger.debug(
@@ -199,8 +212,8 @@ def test_MMM_algo():
     signatures_data = np.load("data/BRCA-signatures.npy")
 
     print("started the init")
-
-    mmm_parameters = initialize_mmm_parameters(signatures_data, initial_pi, input_x)
+    person_params = assign_person_params(initial_pi, signatures_data)
+    mmm_parameters = initialize_chromosome_mmm_parameters(input_x, person_params)
 
     fit(input_x, mmm_parameters)
 
@@ -255,7 +268,9 @@ def main_algorithm_1_2():
 
 
 def main():
-    if sys.argv[1] == "1":
+    if sys.argv[1] == "test":
+        test_MMM_algo()
+    elif sys.argv[1] == "1":
         print("starting run of main 1-1")
         main_algorithm_1_1()
     else:
