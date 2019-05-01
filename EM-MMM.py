@@ -14,7 +14,7 @@ LOG_SIGNATURES_DATA_KEY = "log_signatures_data"
 A_ARRAY_KEY = "a_array"
 DIM_N_KEY = "dim_n"
 E_ARRAY_KEY = "e_array"
-B_ARRAY_KEY = "b_array"
+LOG_B_ARRAY_KEY = "b_array"
 DIM_M_KEY = "dim_m"
 DIM_T_KEY = "dim_t"
 UPDATE_SIGNATURES_DATA = False
@@ -46,13 +46,13 @@ def initialize_chromosome_mmm_parameters(input_x, mmm_person_params):
     dim_m = mmm_person_params[DIM_M_KEY]
     dim_n = mmm_person_params[DIM_N_KEY]
     dim_t = len(input_x)
-    b_array = create_b_array(input_x, dim_m)
+    log_b_array = np.log(create_b_array(input_x, dim_m))
     # are calculated each iteration
     e_array = np.zeros((dim_n, dim_m))
     a_array = np.zeros(dim_n)
     log_signatures_data_copy = mmm_person_params[LOG_SIGNATURES_DATA_KEY].copy()
     log_initial_pi_copy = mmm_person_params[LOG_INITIAL_PI_KEY].copy()
-    return {DIM_T_KEY: dim_t, B_ARRAY_KEY: b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array,
+    return {DIM_T_KEY: dim_t, LOG_B_ARRAY_KEY: log_b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array,
             LOG_SIGNATURES_DATA_KEY: log_signatures_data_copy, LOG_INITIAL_PI_KEY: log_initial_pi_copy,
             DIM_N_KEY: dim_n, DIM_M_KEY: dim_m}
 
@@ -90,14 +90,13 @@ def fit(input_x_data, total_mmm_parameters):
 
 
 def e_step(mmm_parameters):
+    dim_n = mmm_parameters[DIM_N_KEY]
+    dim_m = mmm_parameters[DIM_M_KEY]
     # this is the correct calc for the Eij by the PDF
-    for i in range(mmm_parameters[DIM_N_KEY]):
-        for j in range(mmm_parameters[DIM_M_KEY]):
-            temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j]
-            mmm_parameters[E_ARRAY_KEY][i][j] = (
-                    log(mmm_parameters[B_ARRAY_KEY][j]) + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
-                    mmm_parameters[LOG_SIGNATURES_DATA_KEY][i][
-                        j] - logsumexp(temp_log_sum_array))
+    k_array = [logsumexp((mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j])) for j in
+               range(dim_m)]
+    mmm_parameters[E_ARRAY_KEY] = [(mmm_parameters[LOG_B_ARRAY_KEY] + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
+                                    mmm_parameters[LOG_SIGNATURES_DATA_KEY][i] - k_array) for i in range(dim_n)]
     # this is from the mail with itay to calculate log(Ai)
     mmm_parameters[A_ARRAY_KEY] = logsumexp(mmm_parameters[E_ARRAY_KEY], axis=1)
 
@@ -108,7 +107,7 @@ def likelihood(input_x_data, mmm_parameters):
     convergence = 0
     for t in range(mmm_parameters[DIM_T_KEY]):
         temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:,
-                                                                  int(input_x_data[int(t)])]
+                                                                  int(input_x_data[t])]
         convergence += logsumexp(temp_log_sum_array)
     return convergence
 
@@ -142,8 +141,6 @@ def compute_likelihood_for_chromosome(ignored_chromosome, person, mmm_person_par
     fit(input_x_total, mmm_chromosome_params)
     ignored_sequence = person[ignored_chromosome]["Sequence"]
     mmm_chromosome_params[DIM_T_KEY] = len(ignored_sequence)
-    mmm_chromosome_params[B_ARRAY_KEY] = create_b_array(ignored_sequence,
-                                                        mmm_chromosome_params[DIM_M_KEY])
     return likelihood(ignored_sequence, mmm_chromosome_params)
 
 
