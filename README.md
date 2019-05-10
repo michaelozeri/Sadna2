@@ -1,4 +1,4 @@
-# Sadna 2
+# Sadna 1
 This is the main algo for the workshop of anylysis on biological networks
 This contains implementation on the EM_MMM algo and 2 types of cross validation performed in this impl.
 To start running:
