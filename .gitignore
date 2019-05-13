@@ -2,7 +2,6 @@
 Results/algorithm_1-1_results.log
 .idea/shelf/GOODGOODGOOD.xml
 *.xml
-Results/algorithm_1-2_results.log
 .idea/workspace.xml
 __pycache__/Utils.cpython-37.pyc
 .idea/workspace.xml
@@ -22,3 +21,5 @@ Results/algorithm_1-test_results.log
 .idea/workspace.xml
 .idea/Sadna2.iml
 .idea/misc.xml
+.idea/shelf/parser/shelved.patch
+.idea/shelf/small_opt_changes/shelved.patch
