@@ -46,7 +46,7 @@ def initialize_chromosome_mmm_parameters(input_x, mmm_person_params):
     dim_m = mmm_person_params[DIM_M_KEY]
     dim_n = mmm_person_params[DIM_N_KEY]
     dim_t = len(input_x)
-    log_b_array = np.log(create_b_array(input_x, dim_m))
+    log_b_array = create_b_array(input_x, dim_m)
     # are calculated each iteration
     e_array = np.zeros((dim_n, dim_m))
     a_array = np.zeros(dim_n)
@@ -70,12 +70,12 @@ def assign_person_params(initial_pi, signatures_data):
 
 # on input data (sequence or sequences) do EM iterations until the model improvement is less
 # than  threshold , or until max_iterations iterations.
-def fit(input_x_data, total_mmm_parameters):
+def fit(total_mmm_parameters):
     current_number_of_iterations = 1
-    old_score = likelihood(input_x_data, total_mmm_parameters)
+    old_score = likelihood(total_mmm_parameters)
     e_step(total_mmm_parameters)
     m_step(total_mmm_parameters)
-    new_score = likelihood(input_x_data, total_mmm_parameters)
+    new_score = likelihood(total_mmm_parameters)
     while (abs(new_score - old_score) > threshold) and (current_number_of_iterations < max_iteration):
         # print("delta is: " + abs(new_score - old_score).__str__())
         old_score = new_score
@@ -83,7 +83,7 @@ def fit(input_x_data, total_mmm_parameters):
         # print(self.log_initial_pi)
         m_step(total_mmm_parameters)
         # print(self.log_initial_pi)
-        new_score = likelihood(input_x_data, total_mmm_parameters)
+        new_score = likelihood(total_mmm_parameters)
         current_number_of_iterations += 1
         # print("number of iterations is: " + number_of_iterations.__str__())
     return
@@ -95,7 +95,7 @@ def e_step(mmm_parameters):
     # this is the correct calc for the Eij by the PDF
     k_array = [logsumexp((mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j])) for j in
                range(dim_m)]
-    mmm_parameters[E_ARRAY_KEY] = [(mmm_parameters[LOG_B_ARRAY_KEY] + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
+    mmm_parameters[E_ARRAY_KEY] = [(np.log(mmm_parameters[LOG_B_ARRAY_KEY]) + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
                                     mmm_parameters[LOG_SIGNATURES_DATA_KEY][i] - k_array) for i in range(dim_n)]
     # this is from the mail with itay to calculate log(Ai)
     mmm_parameters[A_ARRAY_KEY] = logsumexp(mmm_parameters[E_ARRAY_KEY], axis=1)
@@ -103,12 +103,11 @@ def e_step(mmm_parameters):
 
 # checks convergence from formula
 # on input on input data (sequence or sequences), return log probability to see it
-def likelihood(input_x_data, mmm_parameters):
+def likelihood(mmm_parameters):
     convergence = 0
-    for t in range(mmm_parameters[DIM_T_KEY]):
-        temp_log_sum_array = mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:,
-                                                                  int(input_x_data[t])]
-        convergence += logsumexp(temp_log_sum_array)
+    for j in range(96):
+        convergence += ((mmm_parameters[LOG_B_ARRAY_KEY][j]) * (
+            logsumexp(mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j])))
     return convergence
 
 
@@ -138,10 +137,11 @@ def log_to_regular(param):
 
 def compute_likelihood_for_chromosome(ignored_chromosome, person, mmm_person_params, input_x_total):
     mmm_chromosome_params = initialize_chromosome_mmm_parameters(input_x_total, mmm_person_params)
-    fit(input_x_total, mmm_chromosome_params)
+    fit(mmm_chromosome_params)
     ignored_sequence = person[ignored_chromosome]["Sequence"]
     mmm_chromosome_params[DIM_T_KEY] = len(ignored_sequence)
-    return likelihood(ignored_sequence, mmm_chromosome_params)
+    mmm_parameters = initialize_chromosome_mmm_parameters(ignored_sequence, mmm_chromosome_params)
+    return likelihood(mmm_parameters)
 
 
 def person_cross_validation(person, mmm_person_params):
@@ -212,7 +212,7 @@ def test_MMM_algo():
     person_params = assign_person_params(initial_pi, signatures_data)
     mmm_parameters = initialize_chromosome_mmm_parameters(input_x, person_params)
 
-    fit(input_x, mmm_parameters)
+    fit(mmm_parameters)
 
     err = 0
     for i in range(len(initial_pi)):
