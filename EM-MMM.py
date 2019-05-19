@@ -14,9 +14,10 @@ LOG_SIGNATURES_DATA_KEY = "log_signatures_data"
 A_ARRAY_KEY = "a_array"
 DIM_N_KEY = "dim_n"
 E_ARRAY_KEY = "e_array"
-LOG_B_ARRAY_KEY = "b_array"
+B_ARRAY_KEY = "b_array"
 DIM_M_KEY = "dim_m"
 DIM_T_KEY = "dim_t"
+IGNORE_Y_CHROMOSOME = True
 UPDATE_SIGNATURES_DATA = False
 
 ######### CROSS VALIDATION FIELDS #######
@@ -33,37 +34,28 @@ logger = logging.getLogger("logger_for_algo_1_" + sys.argv[1])
 
 ############################################## MMM FUNCTIONS ##############################################
 
-
-def convert_to_log_scale(initial_pi):
-    return np.array(log(initial_pi))
-
-
-def convert_to_log_scale_eij(signatures_data):
-    return np.array(log(signatures_data))
-
-
 def initialize_chromosome_mmm_parameters(input_x, mmm_person_params):
     dim_m = mmm_person_params[DIM_M_KEY]
     dim_n = mmm_person_params[DIM_N_KEY]
     dim_t = len(input_x)
-    log_b_array = create_b_array(input_x, dim_m)
+    b_array = np.bincount(input_x, None, dim_m)
     # are calculated each iteration
     e_array = np.zeros((dim_n, dim_m))
     a_array = np.zeros(dim_n)
     log_signatures_data_copy = mmm_person_params[LOG_SIGNATURES_DATA_KEY].copy()
     log_initial_pi_copy = mmm_person_params[LOG_INITIAL_PI_KEY].copy()
-    return {DIM_T_KEY: dim_t, LOG_B_ARRAY_KEY: log_b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array,
+    return {DIM_T_KEY: dim_t, B_ARRAY_KEY: b_array, E_ARRAY_KEY: e_array, A_ARRAY_KEY: a_array,
             LOG_SIGNATURES_DATA_KEY: log_signatures_data_copy, LOG_INITIAL_PI_KEY: log_initial_pi_copy,
             DIM_N_KEY: dim_n, DIM_M_KEY: dim_m}
 
 
 def assign_person_params(initial_pi, signatures_data):
     # defining the mmm
-    log_signatures_data = convert_to_log_scale_eij(signatures_data)
-    log_initial_pi = convert_to_log_scale(initial_pi)
+    log_signatures_data = log(signatures_data)
+    log_initial_pi = log(initial_pi)
     # constants - don't change
-    dim_n = len(log_signatures_data)
-    dim_m = len(log_signatures_data[0])
+    dim_n = len(signatures_data)
+    dim_m = len(signatures_data[0])
     return {DIM_M_KEY: dim_m, DIM_N_KEY: dim_n,
             LOG_INITIAL_PI_KEY: log_initial_pi, LOG_SIGNATURES_DATA_KEY: log_signatures_data}
 
@@ -95,7 +87,7 @@ def e_step(mmm_parameters):
     # this is the correct calc for the Eij by the PDF
     k_array = [logsumexp((mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j])) for j in
                range(dim_m)]
-    mmm_parameters[E_ARRAY_KEY] = [(np.log(mmm_parameters[LOG_B_ARRAY_KEY]) + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
+    mmm_parameters[E_ARRAY_KEY] = [(np.log(mmm_parameters[B_ARRAY_KEY]) + mmm_parameters[LOG_INITIAL_PI_KEY][i] +
                                     mmm_parameters[LOG_SIGNATURES_DATA_KEY][i] - k_array) for i in range(dim_n)]
     # this is from the mail with itay to calculate log(Ai)
     mmm_parameters[A_ARRAY_KEY] = logsumexp(mmm_parameters[E_ARRAY_KEY], axis=1)
@@ -105,8 +97,8 @@ def e_step(mmm_parameters):
 # on input on input data (sequence or sequences), return log probability to see it
 def likelihood(mmm_parameters):
     convergence = 0
-    for j in range(96):
-        convergence += ((mmm_parameters[LOG_B_ARRAY_KEY][j]) * (
+    for j in range(mmm_parameters[DIM_M_KEY]):
+        convergence += ((mmm_parameters[B_ARRAY_KEY][j]) * (
             logsumexp(mmm_parameters[LOG_INITIAL_PI_KEY] + mmm_parameters[LOG_SIGNATURES_DATA_KEY][:, j])))
     return convergence
 
@@ -118,27 +110,15 @@ def m_step(mmm_parameters):
             for j in range(mmm_parameters[DIM_M_KEY]):
                 # numerically stable for pi - Eij is already log(Eij)
                 mmm_parameters[LOG_SIGNATURES_DATA_KEY][i][j] = mmm_parameters[E_ARRAY_KEY][i][j] - log(
-                    sum(log_to_regular(mmm_parameters[E_ARRAY_KEY]), axis=1)[j])
-
-
-def create_b_array(input_x, m):
-    b = np.zeros(m)
-    for i in range(len(input_x)):
-        b[int(input_x[i] - 1)] += 1
-    return np.array(b)
-
-
-def log_to_regular(param):
-    return exp(param)
+                    sum(exp(mmm_parameters[E_ARRAY_KEY]), axis=1)[j])
 
 
 ############################################## CROSS VALIDATION FUNCTIONS ##############################################
 
 
-def compute_likelihood_for_chromosome(ignored_chromosome, person, mmm_person_params, input_x_total):
+def compute_likelihood_for_chromosome(ignored_sequence, mmm_person_params, input_x_total):
     mmm_chromosome_params = initialize_chromosome_mmm_parameters(input_x_total, mmm_person_params)
     fit(mmm_chromosome_params)
-    ignored_sequence = person[ignored_chromosome]["Sequence"]
     mmm_chromosome_params[DIM_T_KEY] = len(ignored_sequence)
     mmm_parameters = initialize_chromosome_mmm_parameters(ignored_sequence, mmm_chromosome_params)
     return likelihood(mmm_parameters)
@@ -146,17 +126,16 @@ def compute_likelihood_for_chromosome(ignored_chromosome, person, mmm_person_par
 
 def person_cross_validation(person, mmm_person_params):
     total_sum_person = 0
-    input_x_total = np.array([])
     # train
-    for chromosome in person:
-        chromosome_sequence = np.array(person[chromosome]["Sequence"])
-        input_x_total = np.append(input_x_total, chromosome_sequence)
+    input_x_total = initialize_total_input_x_array_for_person(person)
     temp_location_sum = 0
     for ignored_chromosome in person:
+        if ignored_chromosome == 'Y' and IGNORE_Y_CHROMOSOME:
+            continue
         start_remove_index = temp_location_sum
         end_remove_index = temp_location_sum + len(person[ignored_chromosome]["Sequence"])
         input_x_after_remove = np.delete(input_x_total, np.s_[start_remove_index:end_remove_index])
-        likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(ignored_chromosome, person,
+        likelihood_for_ignored_chromosome = compute_likelihood_for_chromosome(person[ignored_chromosome]["Sequence"],
                                                                               mmm_person_params, input_x_after_remove)
         temp_location_sum = end_remove_index
         logger.debug("likelihood_for_ignored_chromosome: " + ignored_chromosome + " in log space is :" + str(
@@ -165,6 +144,16 @@ def person_cross_validation(person, mmm_person_params):
             np.exp(likelihood_for_ignored_chromosome)))
         total_sum_person += likelihood_for_ignored_chromosome
     return total_sum_person
+
+
+def initialize_total_input_x_array_for_person(person):
+    input_x_total = np.array([], dtype=int)
+    for chromosome in person:
+        if chromosome == 'Y' and IGNORE_Y_CHROMOSOME:
+            continue
+        chromosome_sequence = np.array(person[chromosome]["Sequence"])
+        input_x_total = np.append(input_x_total, chromosome_sequence)
+    return input_x_total
 
 
 def compute_cross_validation_for_total_training_data(dict_data, initial_pi, signatures_data):
@@ -213,10 +202,9 @@ def test_MMM_algo():
     mmm_parameters = initialize_chromosome_mmm_parameters(input_x, person_params)
 
     fit(mmm_parameters)
-
     err = 0
     for i in range(len(initial_pi)):
-        err += abs(log_to_regular(mmm_parameters[LOG_INITIAL_PI_KEY][i]) - trained_pi[i])
+        err += np.power(abs(exp(mmm_parameters[LOG_INITIAL_PI_KEY][i]) - trained_pi[i]), 2)
         # print(abs(mmm.log_to_regular(mmm.log_initial_pi[i]) - trained_pi[i]))
 
     print(err)
