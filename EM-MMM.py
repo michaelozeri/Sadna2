@@ -6,9 +6,11 @@ import time
 import logging
 import sys
 import Utils
+import datetime
 
 # we don't want to update signatures array (itay asked) at this point so i made
 # a global to set if to update the signatures data or not at this time
+FILE_TO_OPEN = "newDataItay/data_for_michael.json"
 LOG_INITIAL_PI_KEY = "log_initial_pi"
 LOG_SIGNATURES_DATA_KEY = "log_signatures_data"
 A_ARRAY_KEY = "a_array"
@@ -17,7 +19,6 @@ E_ARRAY_KEY = "e_array"
 B_ARRAY_KEY = "b_array"
 DIM_M_KEY = "dim_m"
 DIM_T_KEY = "dim_t"
-IGNORE_Y_CHROMOSOME = True
 UPDATE_SIGNATURES_DATA = False
 
 ######### CROSS VALIDATION FIELDS #######
@@ -27,7 +28,8 @@ max_iteration = 1000
 
 ######### LOGGER CONFIG #######
 
-logging.basicConfig(filename='./Results/algorithm_1-' + sys.argv[1] + '_results.log', level=logging.DEBUG,
+logging.basicConfig(filename='./Results/algo_1_' + sys.argv[1] + str(datetime.datetime.now()) + '_results.log',
+                    level=logging.DEBUG,
                     format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("logger_for_algo_1_" + sys.argv[1])
 
@@ -105,12 +107,6 @@ def likelihood(mmm_parameters):
 
 def m_step(mmm_parameters):
     mmm_parameters[LOG_INITIAL_PI_KEY] = mmm_parameters[A_ARRAY_KEY] - log(mmm_parameters[DIM_T_KEY])
-    if UPDATE_SIGNATURES_DATA:
-        for i in range(mmm_parameters[DIM_N_KEY]):
-            for j in range(mmm_parameters[DIM_M_KEY]):
-                # numerically stable for pi - Eij is already log(Eij)
-                mmm_parameters[LOG_SIGNATURES_DATA_KEY][i][j] = mmm_parameters[E_ARRAY_KEY][i][j] - log(
-                    sum(exp(mmm_parameters[E_ARRAY_KEY]), axis=1)[j])
 
 
 ############################################## CROSS VALIDATION FUNCTIONS ##############################################
@@ -130,8 +126,6 @@ def person_cross_validation(person, mmm_person_params):
     input_x_total = initialize_total_input_x_array_for_person(person)
     temp_location_sum = 0
     for ignored_chromosome in person:
-        if ignored_chromosome == 'Y' and IGNORE_Y_CHROMOSOME:
-            continue
         start_remove_index = temp_location_sum
         end_remove_index = temp_location_sum + len(person[ignored_chromosome]["Sequence"])
         input_x_after_remove = np.delete(input_x_total, np.s_[start_remove_index:end_remove_index])
@@ -149,10 +143,9 @@ def person_cross_validation(person, mmm_person_params):
 def initialize_total_input_x_array_for_person(person):
     input_x_total = np.array([], dtype=int)
     for chromosome in person:
-        if chromosome == 'Y' and IGNORE_Y_CHROMOSOME:
-            continue
         chromosome_sequence = np.array(person[chromosome]["Sequence"])
-        input_x_total = np.append(input_x_total, chromosome_sequence)
+        if len(chromosome_sequence) != 0:
+            input_x_total = np.append(input_x_total, chromosome_sequence)
     return input_x_total
 
 
@@ -180,7 +173,7 @@ def compute_cross_validation_for_total_training_data(dict_data, initial_pi, sign
 ############################################## START RUN OF FILE ##############################################
 
 
-def test_MMM_algo():
+def test_mmm_algo():
     # read example data from JSON
     with open('data/example.json') as f:
         data = json.load(f)
@@ -214,8 +207,9 @@ def test_MMM_algo():
 def main_algorithm_1_1():
     # read dictionary data from JSON
     # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
-    with open('data/ICGC-BRCA.json') as f1:
+    with open(FILE_TO_OPEN) as f1:
         dic_data = json.load(f1)
+    formatted_dict = Utils.parse_dict_into_correct_format(dic_data, int(sys.argv[2]))
     with open('data/example.json') as f:
         data = json.load(f)
     initial_pi = np.array(data['initial_pi'])
@@ -224,16 +218,17 @@ def main_algorithm_1_1():
     signatures_data = np.array(np.load("data/BRCA-signatures.npy"))
     logger.debug("Started cross validation for 1'st type algorithm")
     print("Started cross validation for 1'st type algorithm")
-    training = compute_cross_validation_for_total_training_data(dic_data, initial_pi, signatures_data)
+    training = compute_cross_validation_for_total_training_data(formatted_dict, initial_pi, signatures_data)
     logger.debug("Total sum is: " + str(training))
 
 
 def main_algorithm_1_2():
     # read dictionary data from JSON
     # each key is a persons data - and inside there is chromosomes 1-22,X.Y and their input x1,...xt
-    with open('data/BRCA-strand-info.json') as f1:
+    with open(FILE_TO_OPEN) as f1:
         dic_data = json.load(f1)
-    dic_finals = Utils.split_dictionary_to_strands(dic_data)
+    formatted_dict = Utils.parse_dict_into_correct_format(dic_data, int(sys.argv[2]))
+    dic_finals = Utils.split_dictionary_to_strands(formatted_dict)
     with open('data/example.json') as f:
         data = json.load(f)
     initial_pi = np.array(data['initial_pi'])
@@ -254,7 +249,7 @@ def main_algorithm_1_2():
 
 def main():
     if sys.argv[1] == "test":
-        test_MMM_algo()
+        test_mmm_algo()
     elif sys.argv[1] == "1":
         print("starting run of main 1-1")
         main_algorithm_1_1()
