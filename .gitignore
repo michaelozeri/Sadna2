@@ -14,3 +14,5 @@ Results/algorithm_1-test_results.log
 .idea/shelf/intoClass/shelved.patch
 .idea/shelf/intoClass/EM-MMM.pdf
 .idea/shelf/GOODGOODGOOD/shelved.patch
+skip.patch
+*.patch
