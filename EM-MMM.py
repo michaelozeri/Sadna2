@@ -28,7 +28,8 @@ max_iteration = 1000
 
 ######### LOGGER CONFIG #######
 
-logging.basicConfig(filename='./Results/algo_1_' + sys.argv[1] + str(datetime.datetime.now()) + '_results.log',
+logging.basicConfig(filename='./Results/algo_1_' + sys.argv[1] + (
+    datetime.datetime.strftime(datetime.datetime.now(), "_%d.%m.%Y_%H-%M-%S")) + '_results.log',
                     level=logging.DEBUG,
                     format='%(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("logger_for_algo_1_" + sys.argv[1])
